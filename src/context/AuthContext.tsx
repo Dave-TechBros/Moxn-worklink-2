@@ -98,6 +98,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveUserId(userId);
   };
 
+  const safeParseJson = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      if (text.trim().startsWith('<') || text.includes('The page') || text.includes('DOCTYPE')) {
+        throw new Error('The backend server API route was not found or returned HTML. Please ensure Vercel routes /api requests to the serverless function.');
+      }
+      throw new Error('Server returned an unexpected response format.');
+    }
+  };
+
   const loginWithEmail = async (email: string, password?: string) => {
     setLoading(true);
     try {
@@ -106,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) {
         setLoading(false);
         return { success: false, error: data.error || 'Login failed' };
@@ -120,7 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     } catch (err: any) {
       setLoading(false);
-      return { success: false, error: err.message };
+      return { success: false, error: err.message || 'Login failed' };
     }
   };
 
@@ -139,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      const resData = await res.json();
+      const resData = await safeParseJson(res);
       if (!res.ok) {
         setLoading(false);
         return { success: false, error: resData.error || 'Registration failed' };
@@ -153,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     } catch (err: any) {
       setLoading(false);
-      return { success: false, error: err.message };
+      return { success: false, error: err.message || 'Registration failed' };
     }
   };
 
