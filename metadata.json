@@ -1,0 +1,6 @@
+{
+  "name": "Moxn Worklink",
+  "description": "Professional multi-role job board and applicant tracking marketplace",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
