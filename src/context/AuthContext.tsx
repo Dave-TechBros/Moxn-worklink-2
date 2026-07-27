@@ -103,10 +103,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       return JSON.parse(text);
     } catch {
-      if (text.trim().startsWith('<') || text.includes('The page') || text.includes('DOCTYPE')) {
-        throw new Error('The backend server API route was not found or returned HTML. Please ensure Vercel routes /api requests to the serverless function.');
+      const trimmed = text.trim();
+      if (trimmed.startsWith('<') || trimmed.includes('DOCTYPE') || trimmed.includes('The page')) {
+        throw new Error('API endpoint returned HTML instead of JSON. Check backend routing.');
       }
-      throw new Error('Server returned an unexpected response format.');
+      if (trimmed.length > 0 && trimmed.length < 300) {
+        throw new Error(trimmed);
+      }
+      throw new Error('Server returned an unexpected response.');
     }
   };
 

@@ -36,6 +36,14 @@ export const app = express();
 // JSON Body Parser with enlarged limit for base64 resume previews
 app.use(express.json({ limit: "15mb" }));
 
+// Normalize request path so routes match both with and without /api prefix (critical for Vercel Serverless Function rewrites)
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = '/api' + (req.url.startsWith('/') ? '' : '/') + req.url;
+  }
+  next();
+});
+
 // Helper for active user header
 const getAuthUser = async (req: express.Request) => {
   const userIdHeader = req.headers["x-user-id"] as string;
@@ -839,6 +847,17 @@ app.get("/api/admin/stats", async (req, res) => {
 
 app.post("/api/admin/reset-seed", (req, res) => {
   res.json({ success: true, message: "Seed data active." });
+});
+
+// Fallback JSON 404 handler for API routes
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl || req.url}` });
+});
+
+// Global JSON error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled API Server Error:", err);
+  res.status(500).json({ error: err?.message || "Internal server error occurred." });
 });
 
 export default app;

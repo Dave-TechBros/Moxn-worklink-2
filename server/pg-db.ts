@@ -251,7 +251,7 @@ export async function pgGetJobs(params: {
   if (isPgAvailable()) {
     try {
       const dbJobs = (await db.select().from(schema.jobs).orderBy(desc(schema.jobs.created_at))) as Job[];
-      const allCompanies = await db.select().from(schema.companies);
+      const allCompanies = (await db.select().from(schema.companies)) as Company[];
       const companyMap = new Map(allCompanies.map((c) => [c.id, c]));
       allJobs = dbJobs.map((j) => {
         const comp = companyMap.get(j.company_id);
@@ -542,4 +542,8 @@ export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<Resum
   return doc;
 }
 
-seedPgDatabase();
+if (isPgAvailable()) {
+  seedPgDatabase().catch((err) => {
+    console.warn('[Cloud SQL] Automatic seeding skipped:', err);
+  });
+}
