@@ -11,7 +11,7 @@ import {
   ResumeDocument,
   ApplicationStatus,
   StatusHistoryItem
-} from '../src/types.js';
+} from '../src/types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

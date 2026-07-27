@@ -2,7 +2,7 @@ import express from "express";
 import {
   users as memoryUsers,
   validateStateTransition
-} from "./db.js";
+} from "./db";
 import {
   pgGetUserById,
   pgGetUserByEmail,
@@ -28,8 +28,8 @@ import {
   pgResolveFlagReport,
   pgGetResumeDocument,
   pgCreateResumeDocument
-} from "./pg-db.ts";
-import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem } from "../src/types.js";
+} from "./pg-db";
+import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem } from "../src/types";
 
 export const app = express();
 

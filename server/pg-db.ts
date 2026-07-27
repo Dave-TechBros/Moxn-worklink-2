@@ -1,4 +1,4 @@
-import { db, schema } from '../src/db/index.ts';
+import { db, schema } from '../src/db/index';
 import { eq, desc } from 'drizzle-orm';
 import {
   User,
@@ -10,7 +10,7 @@ import {
   ResumeDocument,
   ApplicationStatus,
   StatusHistoryItem
-} from '../src/types.js';
+} from '../src/types';
 import {
   users as memUsers,
   candidateProfiles as memProfiles,
@@ -19,7 +19,7 @@ import {
   applications as memApps,
   flagReports as memFlags,
   resumeDocuments as memResumes
-} from './db.js';
+} from './db';
 
 const isPgAvailable = () => Boolean(process.env.SQL_HOST);
 
