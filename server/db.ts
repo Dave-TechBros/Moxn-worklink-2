@@ -13,9 +13,10 @@ import {
   StatusHistoryItem
 } from '../src/types';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const STORE_PATH = path.join(__dirname, '..', '.data', 'db_store.json');
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const STORE_PATH = IS_SERVERLESS
+  ? path.join('/tmp', 'db_store.json')
+  : path.join(process.cwd(), '.data', 'db_store.json');
 
 // Pre-seeded Users
 export const users: User[] = [
@@ -587,39 +588,56 @@ export function saveStore(): void {
 
 export function loadStore(): void {
   try {
-    if (fs.existsSync(STORE_PATH)) {
-      const raw = fs.readFileSync(STORE_PATH, 'utf-8');
+    let sourcePath = STORE_PATH;
+    if (!fs.existsSync(sourcePath)) {
+      const fallbackPaths = [
+        path.join(process.cwd(), '.data', 'db_store.json'),
+        path.join(process.cwd(), '..', '.data', 'db_store.json')
+      ];
+      for (const p of fallbackPaths) {
+        if (fs.existsSync(p)) {
+          sourcePath = p;
+          break;
+        }
+      }
+    }
+
+    if (fs.existsSync(sourcePath)) {
+      const raw = fs.readFileSync(sourcePath, 'utf-8');
       const data = JSON.parse(raw);
 
-      if (Array.isArray(data.users)) {
+      if (Array.isArray(data.users) && data.users.length > 0) {
         users.length = 0;
         users.push(...data.users);
       }
-      if (data.candidateProfiles && typeof data.candidateProfiles === 'object') {
+      if (data.candidateProfiles && typeof data.candidateProfiles === 'object' && Object.keys(data.candidateProfiles).length > 0) {
         for (const k of Object.keys(candidateProfiles)) delete candidateProfiles[k];
         Object.assign(candidateProfiles, data.candidateProfiles);
       }
-      if (Array.isArray(data.companies)) {
+      if (Array.isArray(data.companies) && data.companies.length > 0) {
         companies.length = 0;
         companies.push(...data.companies);
       }
-      if (Array.isArray(data.jobs)) {
+      if (Array.isArray(data.jobs) && data.jobs.length > 0) {
         jobs.length = 0;
         jobs.push(...data.jobs);
       }
-      if (Array.isArray(data.applications)) {
+      if (Array.isArray(data.applications) && data.applications.length > 0) {
         applications.length = 0;
         applications.push(...data.applications);
       }
-      if (Array.isArray(data.flagReports)) {
+      if (Array.isArray(data.flagReports) && data.flagReports.length > 0) {
         flagReports.length = 0;
         flagReports.push(...data.flagReports);
       }
-      if (data.resumeDocuments && typeof data.resumeDocuments === 'object') {
+      if (data.resumeDocuments && typeof data.resumeDocuments === 'object' && Object.keys(data.resumeDocuments).length > 0) {
         for (const k of Object.keys(resumeDocuments)) delete resumeDocuments[k];
         Object.assign(resumeDocuments, data.resumeDocuments);
       }
-      console.log(`[DB Engine] Persistent store loaded successfully from ${STORE_PATH}. Active users: ${users.length}`);
+      console.log(`[DB Engine] Persistent store loaded successfully from ${sourcePath}. Active users: ${users.length}, Jobs: ${jobs.length}`);
+      if (sourcePath !== STORE_PATH) {
+        saveStore();
+      }
     } else {
       saveStore();
     }

@@ -38,9 +38,24 @@ app.use(express.json({ limit: "15mb" }));
 
 // Normalize request path so routes match both with and without /api prefix (critical for Vercel Serverless Function rewrites)
 app.use((req, res, next) => {
-  if (req.url && !req.url.startsWith('/api')) {
-    req.url = '/api' + (req.url.startsWith('/') ? '' : '/') + req.url;
+  let url = req.url || '/';
+
+  const forwardedUri = (req.headers['x-forwarded-uri'] as string) || (req.headers['x-original-url'] as string);
+  if (forwardedUri && forwardedUri.startsWith('/api')) {
+    url = forwardedUri;
+  } else if (req.originalUrl && req.originalUrl.startsWith('/api')) {
+    url = req.originalUrl;
   }
+
+  const [pathname, search] = url.split('?');
+  
+  if (!pathname.startsWith('/api')) {
+    const normalizedPath = '/api' + (pathname.startsWith('/') ? '' : '/') + pathname;
+    req.url = search ? `${normalizedPath}?${search}` : normalizedPath;
+  } else {
+    req.url = url;
+  }
+
   next();
 });
 

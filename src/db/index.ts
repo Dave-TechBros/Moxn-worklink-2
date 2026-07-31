@@ -44,9 +44,21 @@ export const getDb = () => {
 // Safe Proxy for db exports so top-level imports won't crash when SQL_HOST is omitted
 export const db = new Proxy({} as any, {
   get(_target, prop) {
+    if (
+      prop === 'then' ||
+      prop === 'catch' ||
+      prop === 'finally' ||
+      prop === 'toJSON' ||
+      prop === 'constructor' ||
+      typeof prop === 'symbol'
+    ) {
+      return undefined;
+    }
     const instance = getDb();
     if (!instance) {
-      throw new Error("Cloud SQL database is not configured (SQL_HOST missing).");
+      return () => {
+        throw new Error("Cloud SQL database is not configured (SQL_HOST missing).");
+      };
     }
     const val = (instance as any)[prop];
     return typeof val === 'function' ? val.bind(instance) : val;
