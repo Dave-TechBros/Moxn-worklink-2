@@ -40,22 +40,32 @@ app.use(express.json({ limit: "15mb" }));
 app.use((req, res, next) => {
   let url = req.url || '/';
 
-  const forwardedUri = (req.headers['x-forwarded-uri'] as string) || (req.headers['x-original-url'] as string);
-  if (forwardedUri && forwardedUri.startsWith('/api')) {
-    url = forwardedUri;
-  } else if (req.originalUrl && req.originalUrl.startsWith('/api')) {
-    url = req.originalUrl;
+  try {
+    const urlObj = new URL(url, 'http://localhost');
+    const pathParam = urlObj.searchParams.get('path');
+    const forwardedUri =
+      (req.headers['x-forwarded-uri'] as string) ||
+      (req.headers['x-invoke-path'] as string) ||
+      (req.headers['x-original-url'] as string);
+
+    if (pathParam) {
+      url = '/api/' + pathParam.replace(/^\//, '');
+    } else if (forwardedUri && forwardedUri.startsWith('/api')) {
+      url = forwardedUri;
+    } else if (req.originalUrl && req.originalUrl.startsWith('/api') && !req.originalUrl.startsWith('/api/index')) {
+      url = req.originalUrl;
+    }
+  } catch {
+    // Fallback if URL parsing fails
   }
 
   const [pathname, search] = url.split('?');
-  
-  if (!pathname.startsWith('/api')) {
-    const normalizedPath = '/api' + (pathname.startsWith('/') ? '' : '/') + pathname;
-    req.url = search ? `${normalizedPath}?${search}` : normalizedPath;
-  } else {
-    req.url = url;
+  let normalizedPath = pathname;
+  if (!normalizedPath.startsWith('/api')) {
+    normalizedPath = '/api' + (normalizedPath.startsWith('/') ? '' : '/') + normalizedPath;
   }
 
+  req.url = search ? `${normalizedPath}?${search}` : normalizedPath;
   next();
 });
 
