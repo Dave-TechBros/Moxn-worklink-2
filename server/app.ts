@@ -70,13 +70,16 @@ app.use((req, res, next) => {
 });
 
 // Helper for active user header
+// IMPORTANT: Never silently fall back to a default account. If the header is
+// missing or references a user that no longer exists, return null so callers
+// treat the request as unauthenticated instead of impersonating another user.
 const getAuthUser = async (req: express.Request) => {
   const userIdHeader = req.headers["x-user-id"] as string;
   if (userIdHeader && userIdHeader !== 'null' && userIdHeader !== 'undefined' && userIdHeader.trim() !== '') {
     const found = await pgGetUserById(userIdHeader);
     if (found) return found;
   }
-  return (await pgGetUserById('user-emp-1')) || (await pgGetUserById('user-cand-1'));
+  return null;
 };
 
 // -------------------------------------------------------------
@@ -450,6 +453,9 @@ app.get("/api/candidate/profile", async (req, res) => {
 
 app.get("/api/candidate/profile/:userId", async (req, res) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
     const targetUserId = req.params.userId;
     const profile = await pgGetCandidateProfile(targetUserId);
     if (!profile) {
@@ -473,7 +479,20 @@ app.put("/api/candidate/profile", async (req, res) => {
       await pgCreateUser(user);
     }
 
+    // Merge with existing profile so fields not sent by the client
+    // (resume_file_id, resume_file_name, years_experience, avatar) are preserved.
+    const existing = await pgGetCandidateProfile(user.id);
+
     const updated = await pgUpsertCandidateProfile({
+      ...(existing || {
+        user_id: user.id,
+        name: user.name,
+        headline: "",
+        location: "",
+        skills: [],
+        links: [],
+        bio: ""
+      }),
       ...profileData,
       user_id: user.id,
       name: user.name,
@@ -563,6 +582,9 @@ app.post("/api/candidate/resume", async (req, res) => {
 
 app.get("/api/resumes/:id", async (req, res) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
     const doc = await pgGetResumeDocument(req.params.id);
     if (!doc) {
       return res.status(404).json({ error: "Resume document not found." });
@@ -696,6 +718,11 @@ app.get("/api/employer/applications", async (req, res) => {
 app.patch("/api/applications/:id/status", async (req, res) => {
   try {
     const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (user.role !== 'employer' && user.role !== 'admin') {
+      return res.status(403).json({ error: "Unauthorized: Employer or admin role required." });
+    }
+
     const { to_status, note, force } = req.body;
 
     const appItem = await pgGetApplicationById(req.params.id);
@@ -746,6 +773,13 @@ app.patch("/api/applications/:id/status", async (req, res) => {
 
 app.patch("/api/applications/:id/notes", async (req, res) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    if (user.role !== 'employer' && user.role !== 'admin') {
+      return res.status(403).json({ error: "Unauthorized: Employer or admin role required." });
+    }
+
     const { internal_notes } = req.body;
     const updated = await pgUpdateApplicationNotes(req.params.id, internal_notes || "");
     if (!updated) {
@@ -760,6 +794,12 @@ app.patch("/api/applications/:id/notes", async (req, res) => {
 // Admin API & Reports
 app.get("/api/admin/companies", async (req, res) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin role required." });
+    }
+
     const allCompanies = await pgGetCompanies();
     res.json(allCompanies);
   } catch (err) {
@@ -770,6 +810,7 @@ app.get("/api/admin/companies", async (req, res) => {
 app.patch("/api/admin/companies/:id/status", async (req, res) => {
   try {
     const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "admin") {
       return res.status(403).json({ error: "Admin role required." });
     }
@@ -792,6 +833,12 @@ app.patch("/api/admin/companies/:id/status", async (req, res) => {
 
 app.get("/api/reports", async (req, res) => {
   try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin role required." });
+    }
+
     const reports = await pgGetFlagReports();
     res.json(reports);
   } catch (err) {
@@ -802,6 +849,8 @@ app.get("/api/reports", async (req, res) => {
 app.post("/api/reports", async (req, res) => {
   try {
     const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
     const { target_type, target_id, target_title, reason, details } = req.body;
 
     if (!target_id || !reason) {
@@ -830,6 +879,7 @@ app.post("/api/reports", async (req, res) => {
 app.patch("/api/admin/reports/:id/resolve", async (req, res) => {
   try {
     const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "admin") {
       return res.status(403).json({ error: "Admin role required." });
     }
@@ -848,6 +898,7 @@ app.patch("/api/admin/reports/:id/resolve", async (req, res) => {
 app.get("/api/admin/stats", async (req, res) => {
   try {
     const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "admin") {
       return res.status(403).json({ error: "Admin role required." });
     }

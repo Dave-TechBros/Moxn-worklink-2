@@ -76,6 +76,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (data.availableUsers) {
           setAvailableUsers(data.availableUsers);
         }
+        if (!data.user) {
+          // The stored user id no longer resolves to a real account.
+          // Clear the stale session so we don't bounce between accounts.
+          localStorage.removeItem('moxn_active_user_id');
+        }
       }
     } catch (err) {
       console.error('Failed to fetch user session:', err);

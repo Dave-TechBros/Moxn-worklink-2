@@ -138,10 +138,10 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="xl">
       {/* Step Indicator Header (Chunked per Miller's Law) */}
-      <div className="mb-6">
+      <div className="mb-6 pr-10">
         <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-          <span>Apply to {job.company_name}</span>
-          <span>Step {step} of 3</span>
+          <span className="min-w-0 truncate">Apply to {job.company_name}</span>
+          <span className="whitespace-nowrap">Step {step} of 3</span>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
