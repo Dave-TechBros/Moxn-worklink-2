@@ -26,10 +26,19 @@ import {
   pgGetFlagReports,
   pgCreateFlagReport,
   pgResolveFlagReport,
+  pgDeleteJob,
   pgGetResumeDocument,
-  pgCreateResumeDocument
+  pgCreateResumeDocument,
+  pgGetAllUsers,
+  pgDeleteUser,
+  pgCreateNotification,
+  pgGetNotifications,
+  pgCreateAuditLog,
+  pgGetAuditLogs,
+  pgGetSettings,
+  pgUpdateSettings
 } from "./pg-db.js";
-import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem } from "../src/types";
+import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
 
 export const app = express();
 
@@ -80,6 +89,70 @@ const getAuthUser = async (req: express.Request) => {
     if (found) return found;
   }
   return null;
+};
+
+// -------------------------------------------------------------
+// ROLE-BASED ACCESS CONTROL (RBAC)
+// -------------------------------------------------------------
+const ADMIN_LEVEL_RANK: Record<string, number> = {
+  moderator: 1,
+  admin: 2,
+  super_admin: 3
+};
+
+// Returns { ok: true, user } if the requester is an admin of at least the given
+// rank, otherwise { ok: false, status, error }.
+const requireAdminLevel = async (req: express.Request, minLevel: 'moderator' | 'admin' | 'super_admin') => {
+  const user = await getAuthUser(req);
+  if (!user) {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+  if (user.role !== 'admin' || !user.admin_level) {
+    return { ok: false as const, status: 403, error: "Admin role required." };
+  }
+  const rank = ADMIN_LEVEL_RANK[user.admin_level] || 0;
+  const required = ADMIN_LEVEL_RANK[minLevel] || 1;
+  if (rank < required) {
+    return { ok: false as const, status: 403, error: `Insufficient permissions. Requires ${minLevel} or higher.` };
+  }
+  return { ok: true as const, user };
+};
+
+// Log an admin action into the audit trail.
+const logAudit = async (
+  admin: User,
+  action: string,
+  target_type: string,
+  target_id: string,
+  target_title: string | undefined,
+  details: string | undefined,
+  req: express.Request
+) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = Array.isArray(forwarded)
+    ? forwarded[0]
+    : typeof forwarded === 'string'
+    ? forwarded.split(',')[0].trim()
+    : (req.ip || req.socket?.remoteAddress || '');
+
+  const entry: AuditLogEntry = {
+    id: `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    admin_user_id: admin.id,
+    admin_name: admin.name,
+    action,
+    target_type,
+    target_id,
+    target_title,
+    details,
+    ip_address: ip || undefined,
+    created_at: new Date().toISOString()
+  };
+  await pgCreateAuditLog(entry);
+};
+
+const sanitizeString = (value: unknown, maxLen = 500): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, maxLen);
 };
 
 // -------------------------------------------------------------
@@ -897,24 +970,42 @@ app.patch("/api/admin/reports/:id/resolve", async (req, res) => {
 
 app.get("/api/admin/stats", async (req, res) => {
   try {
-    const user = await getAuthUser(req);
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin role required." });
+    const adminUser = await requireAdminLevel(req, 'moderator');
+    if (!adminUser.ok) {
+      return res.status(adminUser.status).json({ error: adminUser.error });
     }
 
+    const allUsers = await pgGetAllUsers();
     const allJobs = await pgGetJobs({ status: 'all' });
     const allApps = await pgGetApplications({});
     const allCompanies = await pgGetCompanies();
     const allReports = await pgGetFlagReports();
+    const now = Date.now();
+    const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     res.json({
+      totalUsers: allUsers.length,
+      totalEmployers: allUsers.filter((u) => u.role === 'employer').length,
+      totalEmployees: allUsers.filter((u) => u.role === 'candidate').length,
+      newRegistrations30d: allUsers.filter((u) => u.created_at >= thirtyDaysAgo).length,
+      activeUsers: allUsers.filter((u) => u.status !== 'suspended').length,
+      suspendedUsers: allUsers.filter((u) => u.status === 'suspended').length,
+      verifiedUsers: allUsers.filter((u) => u.verified).length,
       totalJobs: allJobs.length,
-      publishedJobs: allJobs.filter((j) => j.status === "published").length,
+      publishedJobs: allJobs.filter((j) => j.status === 'published').length,
+      closedJobs: allJobs.filter((j) => j.status === 'closed').length,
+      draftJobs: allJobs.filter((j) => j.status === 'draft').length,
+      pendingApprovals: allJobs.filter((j) => j.status === 'draft').length,
       totalApplications: allApps.length,
       totalCompanies: allCompanies.length,
-      activeCompanies: allCompanies.filter((c) => c.status === "active").length,
-      openReports: allReports.filter((r) => r.status === "open").length
+      activeCompanies: allCompanies.filter((c) => c.status === 'active').length,
+      suspendedCompanies: allCompanies.filter((c) => c.status === 'suspended').length,
+      openReports: allReports.filter((r) => r.status === 'open').length,
+      totalReports: allReports.length,
+      offers: allApps.filter((a) => a.status === 'offer').length,
+      adminCount: allUsers.filter((u) => u.role === 'admin' && (u.admin_level === 'super_admin' || u.admin_level === 'admin')).length,
+      moderatorCount: allUsers.filter((u) => u.role === 'admin' && u.admin_level === 'moderator').length,
+      systemHealthy: true
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch admin statistics." });
@@ -923,6 +1014,583 @@ app.get("/api/admin/stats", async (req, res) => {
 
 app.post("/api/admin/reset-seed", (req, res) => {
   res.json({ success: true, message: "Seed data active." });
+});
+
+// -------------------------------------------------------------
+// ADMIN: USER MANAGEMENT
+// -------------------------------------------------------------
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    let users = await pgGetAllUsers();
+    const {
+      role, status, search, verified, sort = 'created_at',
+      dir = 'desc', page = '1', limit = '20'
+    } = req.query;
+
+    if (role && role !== 'all') users = users.filter((u) => u.role === role);
+    if (status && status !== 'all') users = users.filter((u) => (u.status || 'active') === status);
+    if (verified === 'true') users = users.filter((u) => u.verified);
+    if (verified === 'false') users = users.filter((u) => !u.verified);
+
+    if (search) {
+      const term = String(search).toLowerCase();
+      users = users.filter(
+        (u) =>
+          u.name.toLowerCase().includes(term) ||
+          u.email.toLowerCase().includes(term) ||
+          u.id.toLowerCase().includes(term)
+      );
+    }
+
+    const sortKey = String(sort || 'created_at');
+    const dirFactor = dir === 'asc' ? 1 : -1;
+    users.sort((a: any, b: any) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dirFactor;
+      return String(av).localeCompare(String(bv)) * dirFactor;
+    });
+
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const total = users.length;
+    const start = (pageNum - 1) * limitNum;
+    const items = users.slice(start, start + limitNum);
+
+    res.json({ items, total, page: pageNum, limit: limitNum });
+  } catch (err) {
+    console.error('API GET /api/admin/users error:', err);
+    res.status(500).json({ error: "Failed to fetch users." });
+  }
+});
+
+app.get("/api/admin/users/:id", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const profile = user.role === 'candidate' ? await pgGetCandidateProfile(user.id) : null;
+    const company = user.role === 'employer' ? (await pgGetCompanyByOwnerUserId(user.id) || (user.company_id ? await pgGetCompanyById(user.company_id) : null)) : null;
+    const apps = await pgGetApplications({ candidate_id: user.id });
+
+    res.json({ user, profile, company, applications: apps });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch user details." });
+  }
+});
+
+app.patch("/api/admin/users/:id", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'super_admin');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const { name, email, role, admin_level, status, verified } = req.body;
+    if (name) user.name = name.trim();
+    if (email) user.email = email.trim().toLowerCase();
+    if (role && ['candidate', 'employer', 'admin'].includes(role)) user.role = role;
+    if (admin_level && ['super_admin', 'admin', 'moderator'].includes(admin_level)) user.admin_level = admin_level;
+    if (status && ['active', 'suspended'].includes(status)) user.status = status;
+    if (typeof verified === 'boolean') user.verified = verified;
+
+    await pgCreateUser(user);
+    await logAudit(auth.user, 'user_update', 'user', user.id, user.name, `Profile updated by super admin.`, req);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update user." });
+  }
+});
+
+app.patch("/api/admin/users/:id/status", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    if (user.role === 'admin') {
+      const subject = await requireAdminLevel(req, 'super_admin');
+      if (!subject.ok) return res.status(subject.status).json({ error: "Cannot moderate another admin without super admin." });
+    }
+
+    const status = req.body.status === 'suspended' ? 'suspended' : 'active';
+    user.status = status;
+    await pgCreateUser(user);
+    await logAudit(auth.user, status === 'suspended' ? 'user.suspend' : 'user.reactivate', 'user', user.id, user.name, `Status changed to ${status}.`, req);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update user status." });
+  }
+});
+
+app.patch("/api/admin/users/:id/verified", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const verify = req.body.verified !== false;
+    user.verified = verify;
+    await pgCreateUser(user);
+    await logAudit(auth.user, verify ? 'user.verify' : 'user.unverify', 'user', user.id, user.name, undefined, req);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update verification." });
+  }
+});
+
+app.patch("/api/admin/users/:id/password", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'admin');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const { password } = req.body;
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ error: "Password must be at least 4 characters." });
+    }
+    user.password = String(password);
+    await pgCreateUser(user);
+    await logAudit(auth.user, 'user.password_reset', 'user', user.id, user.name, undefined, req);
+    res.json({ success: true, message: "Password updated." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to reset password." });
+  }
+});
+
+app.delete("/api/admin/users/:id", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'super_admin');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    if (req.params.id === auth.user.id) {
+      return res.status(400).json({ error: "You cannot delete your own account." });
+    }
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    if (user.role === 'admin') {
+      return res.status(403).json({ error: "Use Admin Management to remove administrator accounts." });
+    }
+
+    await pgDeleteUser(user.id);
+    await logAudit(auth.user, 'user.delete', 'user', user.id, user.name, undefined, req);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete user." });
+  }
+});
+
+app.post("/api/admin/users/:id/notify", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const user = await pgGetUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const title = sanitizeString(req.body.title, 120);
+    const body = sanitizeString(req.body.body, 2000);
+    if (!title || !body) return res.status(400).json({ error: "Title and message are required." });
+
+    const notif: PlatformNotification = {
+      id: `notif-${Date.now()}`,
+      title,
+      body,
+      audience: 'user',
+      target_user_id: user.id,
+      created_by_user_id: auth.user.id,
+      created_by_name: auth.user.name,
+      created_at: new Date().toISOString(),
+      sent_at: new Date().toISOString()
+    };
+    await pgCreateNotification(notif);
+    await logAudit(auth.user, 'notification.send', 'user', user.id, user.name, title, req);
+    res.status(201).json(notif);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send notification." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: NOTIFICATIONS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/notifications", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+    const notifs = await pgGetNotifications();
+    res.json(notifs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch notifications." });
+  }
+});
+
+app.post("/api/admin/notifications", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { title, body, audience, target_user_id, scheduled_for } = req.body;
+    if (!title || !body) return res.status(400).json({ error: "Title and message are required." });
+    if (!['all', 'candidate', 'employer', 'admin', 'user'].includes(audience || 'all')) {
+      return res.status(400).json({ error: "Invalid audience." });
+    }
+
+    const notif: PlatformNotification = {
+      id: `notif-${Date.now()}`,
+      title: sanitizeString(title, 120),
+      body: sanitizeString(body, 2000),
+      audience: audience || 'all',
+      target_user_id: audience === 'user' ? target_user_id : undefined,
+      created_by_user_id: auth.user.id,
+      created_by_name: auth.user.name,
+      created_at: new Date().toISOString(),
+      scheduled_for: scheduled_for || undefined,
+      sent_at: scheduled_for ? null : new Date().toISOString()
+    };
+    await pgCreateNotification(notif);
+    await logAudit(auth.user, 'notification.send', 'notification', notif.id, title, `Audience: ${audience || 'all'}`, req);
+    res.status(201).json(notif);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send notification." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: ANALYTICS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/analytics", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const users = await pgGetAllUsers();
+    const jobs = await pgGetJobs({ status: 'all' });
+    const apps = await pgGetApplications({});
+    const companies = await pgGetCompanies();
+
+    // Build a 6-month growth series keyed by month label.
+    const growth: { label: string; candidates: number; employers: number; jobs: number; applications: number }[] = [];
+    const today = new Date();
+    for (let m = 5; m >= 0; m--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - m, 1);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const next = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString();
+
+      const candidates = users.filter((u) => u.role === 'candidate' && u.created_at < next).length;
+      const employers = users.filter((u) => u.role === 'employer' && u.created_at < next).length;
+      const monthJobs = jobs.filter((j) => j.created_at < next).length;
+      const monthApps = apps.filter((a) => a.created_at < next).length;
+      growth.push({
+        label: d.toLocaleString('default', { month: 'short' }),
+        candidates, employers, jobs: monthJobs, applications: monthApps
+      });
+    }
+
+    // Application status distribution
+    const applicationsByStatus = ['new', 'reviewing', 'interview', 'offer', 'rejected'].map((status) => ({
+      status,
+      count: apps.filter((a) => a.status === status).length
+    }));
+
+    // Popular tags
+    const tagCount: Record<string, number> = {};
+    jobs.forEach((j) => (j.tags || []).forEach((t) => { tagCount[t] = (tagCount[t] || 0) + 1; }));
+    const tagsByCount = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const popularTags = tagsByCount.map(([tag, count]) => ({ tag, count }));
+
+    // Top employers
+    const topEmployers = companies.slice(0, 8).map((c) => {
+      const companyJobs = jobs.filter((j) => j.company_id === c.id);
+      const companyApps = companyJobs.reduce((sum, j) => sum + (j.applicant_count || 0), 0);
+      return { company_id: c.id, company_name: c.name, jobs: companyJobs.length, applications: companyApps };
+    }).sort((a, b) => b.applications - a.applications);
+
+    const recentLogs = await pgGetAuditLogs(15);
+
+    res.json({
+      growth,
+      applicationsByStatus,
+      popularTags,
+      topEmployers,
+      engagement: {
+        dailyActive: 12,
+        monthlyActive: users.length,
+        avgApplicationsPerJob: jobs.length ? (apps.length / jobs.length) : 0,
+        conversionRate: apps.length ? (apps.filter((a) => a.status === 'offer').length / apps.length) * 100 : 0
+      },
+      recentActivity: recentLogs
+    });
+  } catch (err) {
+    console.error('API GET /api/admin/analytics error:', err);
+    res.status(500).json({ error: "Failed to fetch analytics." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: AUDIT LOGS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/audit-logs", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { search } = req.query;
+    let logs = await pgGetAuditLogs(1000);
+    if (search) {
+      const term = String(search).toLowerCase();
+      logs = logs.filter(
+        (l) =>
+          l.admin_name.toLowerCase().includes(term) ||
+          l.action.toLowerCase().includes(term) ||
+          l.target_type.toLowerCase().includes(term) ||
+          (l.target_title || '').toLowerCase().includes(term)
+      );
+    }
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch audit logs." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: SETTINGS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/settings", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+    res.json(await pgGetSettings());
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch settings." });
+  }
+});
+
+app.put("/api/admin/settings", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'admin');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const patch: any = {};
+    if (req.body.platform_name !== undefined) patch.platform_name = sanitizeString(req.body.platform_name, 80) || 'Moxn Worklink';
+    if (req.body.platform_tagline !== undefined) patch.platform_tagline = sanitizeString(req.body.platform_tagline, 120);
+    if (req.body.contact_email !== undefined) patch.contact_email = sanitizeString(req.body.contact_email, 120);
+    if (req.body.announcement !== undefined) patch.announcement = sanitizeString(req.body.announcement, 500);
+    if (req.body.registration_enabled !== undefined) patch.registration_enabled = Boolean(req.body.registration_enabled);
+    if (req.body.job_approval_required !== undefined) patch.job_approval_required = Boolean(req.body.job_approval_required);
+    if (req.body.maintenance_mode !== undefined) patch.maintenance_mode = Boolean(req.body.maintenance_mode);
+    if (req.body.email_notifications_enabled !== undefined) patch.email_notifications_enabled = Boolean(req.body.email_notifications_enabled);
+    if (req.body.max_resume_size_mb !== undefined) patch.max_resume_size_mb = Number(req.body.max_resume_size_mb) || 10;
+
+    const settings = await pgUpdateSettings(patch);
+    await logAudit(auth.user, 'settings.update', 'settings', 'platform', 'Platform Settings', undefined, req);
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update settings." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: JOB MANAGEMENT
+// -----------------------------------------------------------------------------
+app.get("/api/admin/jobs", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const {
+      search, status, sort = 'created_at', dir = 'desc',
+      page = '1', limit = '20'
+    } = req.query;
+
+    let jobs = await pgGetJobs({ status: 'all' });
+
+    if (status && status !== 'all') jobs = jobs.filter((j) => j.status === status);
+    if (search) {
+      const term = String(search).toLowerCase();
+      jobs = jobs.filter(
+        (j) =>
+          j.title.toLowerCase().includes(term) ||
+          j.company_name.toLowerCase().includes(term) ||
+          (j.location || '').toLowerCase().includes(term) ||
+          (j.tags || []).some((t) => t.toLowerCase().includes(term))
+      );
+    }
+
+    const sortKey = String(sort || 'created_at');
+    const dirFactor = dir === 'asc' ? 1 : -1;
+    jobs = [...jobs].sort((a: any, b: any) => {
+      if (sortKey === 'applicants') {
+        return ((a.applicant_count || 0) - (b.applicant_count || 0)) * dirFactor;
+      }
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (typeof av === 'string') return av.localeCompare(String(bv)) * dirFactor;
+      return ((av || 0) - (bv || 0)) * dirFactor;
+    });
+
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const total = jobs.length;
+    const items = jobs.slice((pageNum - 1) * pageSize, pageNum * pageSize);
+
+    res.json({ items, total, page: pageNum, limit: pageSize });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch jobs." });
+  }
+});
+
+app.patch("/api/admin/jobs/:id/status", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { status } = req.body;
+    if (!['draft', 'published', 'closed'].includes(status)) {
+      return res.status(400).json({ error: "Invalid status value." });
+    }
+
+    const updated = await pgUpdateJob(req.params.id, { status });
+    if (!updated) return res.status(404).json({ error: "Job not found." });
+
+    await logAudit(auth.user, 'job.update', 'job', updated.id, updated.title, `Status: ${status}`, req);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update job status." });
+  }
+});
+
+app.delete("/api/admin/jobs/:id", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'super_admin');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const deleted = await pgDeleteJob(req.params.id);
+    if (!deleted) return res.status(404).json({ error: "Job not found." });
+
+    await logAudit(auth.user, 'job.delete', 'job', req.params.id, 'Deleted job', undefined, req);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete job." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: APPLICATIONS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/applications", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { search, status, sort = 'created_at', dir = 'desc', page = '1', limit = '20' } = req.query;
+
+    let apps = await pgGetApplications({});
+
+    if (status && status !== 'all') apps = apps.filter((a) => a.status === status);
+    if (search) {
+      const term = String(search).toLowerCase();
+      apps = apps.filter(
+        (a) =>
+          a.candidate_name?.toLowerCase().includes(term) ||
+          a.job_title?.toLowerCase().includes(term) ||
+          a.company_name?.toLowerCase().includes(term)
+      );
+    }
+
+    const sortKey = String(sort || 'created_at');
+    const dirFactor = dir === 'asc' ? 1 : -1;
+    apps = [...apps].sort((a: any, b: any) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (typeof av === 'string') return av.localeCompare(String(bv)) * dirFactor;
+      return ((av || 0) - (bv || 0)) * dirFactor;
+    });
+
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const total = apps.length;
+    const items = apps.slice((pageNum - 1) * pageSize, pageNum * pageSize);
+
+    res.json({ items, total, page: pageNum, limit: pageSize });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch applications." });
+  }
+});
+
+app.patch("/api/admin/applications/:id/status", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { status } = req.body;
+    if (!['new', 'reviewing', 'interview', 'offer', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: "Invalid application status." });
+    }
+
+    const app = await pgGetApplicationById(req.params.id);
+    if (!app) return res.status(404).json({ error: "Application not found." });
+
+    const historyEntry: StatusHistoryItem = {
+      id: `hist-${Date.now()}`,
+      from_status: app.status,
+      to_status: status,
+      updated_by_user_id: auth.user.id,
+      updated_by_name: auth.user.name,
+      timestamp: new Date().toISOString(),
+      note: `Status changed by ${auth.user.name} (admin)`
+    };
+    const updated = await pgUpdateApplicationStatus(app.id, status as ApplicationStatus, historyEntry);
+    await logAudit(auth.user, 'application.update', 'application', app.id, `${app.job_title}`, `Status: ${status}`, req);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update application status." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADMIN: REPORTS
+// -----------------------------------------------------------------------------
+app.get("/api/admin/reports", async (req, res) => {
+  try {
+    const auth = await requireAdminLevel(req, 'moderator');
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    const { status, page = '1', limit = '20' } = req.query;
+    let reports = await pgGetFlagReports();
+
+    if (status && status !== 'all') reports = reports.filter((r) => r.status === status);
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const total = reports.length;
+    const items = reports.slice((pageNum - 1) * pageSize, pageNum * pageSize);
+
+    res.json({ items, total, page: pageNum, limit: pageSize });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch reports." });
+  }
+});
+
+app.get("/api/admin/me", async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin role required." });
+  }
+  res.json({ user });
 });
 
 // Fallback JSON 404 handler for API routes

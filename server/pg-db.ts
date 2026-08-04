@@ -9,7 +9,10 @@ import {
   FlagReport,
   ResumeDocument,
   ApplicationStatus,
-  StatusHistoryItem
+  StatusHistoryItem,
+  PlatformNotification,
+  AuditLogEntry,
+  PlatformSettings
 } from '../src/types';
 import {
   users as memUsers,
@@ -18,7 +21,11 @@ import {
   jobs as memJobs,
   applications as memApps,
   flagReports as memFlags,
-  resumeDocuments as memResumes
+  resumeDocuments as memResumes,
+  notifications as memNotifications,
+  auditLogs as memAuditLogs,
+  getSettings,
+  updateSettings
 } from './db.js';
 
 const isPgAvailable = () => Boolean(process.env.SQL_HOST);
@@ -272,9 +279,9 @@ export async function pgGetJobs(params: {
     filtered = filtered.filter((j) => j.company_id === params.company_id);
   }
 
-  if (params.status) {
+  if (params.status && params.status !== 'all') {
     filtered = filtered.filter((j) => j.status === params.status);
-  } else {
+  } else if (!params.status) {
     filtered = filtered.filter((j) => j.status === 'published' && j.company_status !== 'suspended');
   }
 
@@ -356,6 +363,23 @@ export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise
     return memJobs[idx];
   }
   return null;
+}
+
+export async function pgDeleteJob(jobId: string): Promise<boolean> {
+  if (isPgAvailable()) {
+    try {
+      const res = await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId)).returning();
+      if (res[0]) return true;
+    } catch (err) {
+      console.warn('Postgres delete job failed, using memory store:', err);
+    }
+  }
+  const idx = memJobs.findIndex((j) => j.id === jobId);
+  if (idx >= 0) {
+    memJobs.splice(idx, 1);
+    return true;
+  }
+  return false;
 }
 
 // -------------------------------------------------------------
@@ -540,6 +564,74 @@ export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<Resum
   }
   memResumes[doc.id] = doc;
   return doc;
+}
+
+// -------------------------------------------------------------
+// ADMIN: USER MANAGEMENT HELPERS
+// -------------------------------------------------------------
+export async function pgGetAllUsers(): Promise<User[]> {
+  if (isPgAvailable()) {
+    try {
+      const rows = await db.select().from(schema.users);
+      return rows as User[];
+    } catch (err) {
+      console.warn('Postgres get all users failed, using memory store:', err);
+    }
+  }
+  return memUsers;
+}
+
+export async function pgDeleteUser(userId: string): Promise<boolean> {
+  if (isPgAvailable()) {
+    try {
+      await db.delete(schema.users).where(eq(schema.users.id, userId));
+      for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
+      for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
+      return true;
+    } catch (err) {
+      console.warn('Postgres delete user failed, using memory store:', err);
+    }
+  }
+  const idx = memUsers.findIndex((u) => u.id === userId);
+  if (idx >= 0) memUsers.splice(idx, 1);
+  for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
+  for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
+  return true;
+}
+
+// -------------------------------------------------------------
+// ADMIN: NOTIFICATION HELPERS
+// -------------------------------------------------------------
+export async function pgCreateNotification(n: PlatformNotification): Promise<PlatformNotification> {
+  memNotifications.unshift(n);
+  return n;
+}
+
+export async function pgGetNotifications(): Promise<PlatformNotification[]> {
+  return memNotifications;
+}
+
+// -------------------------------------------------------------
+// ADMIN: AUDIT LOG HELPERS
+// -------------------------------------------------------------
+export async function pgCreateAuditLog(entry: AuditLogEntry): Promise<AuditLogEntry> {
+  memAuditLogs.unshift(entry);
+  return entry;
+}
+
+export async function pgGetAuditLogs(limit = 500): Promise<AuditLogEntry[]> {
+  return memAuditLogs.slice(0, limit);
+}
+
+// -------------------------------------------------------------
+// ADMIN: SETTINGS HELPERS
+// -------------------------------------------------------------
+export async function pgGetSettings(): Promise<PlatformSettings> {
+  return getSettings();
+}
+
+export async function pgUpdateSettings(patch: Partial<PlatformSettings>): Promise<PlatformSettings> {
+  return updateSettings(patch);
 }
 
 if (isPgAvailable()) {

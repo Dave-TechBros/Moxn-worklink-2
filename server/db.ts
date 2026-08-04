@@ -10,7 +10,10 @@ import {
   FlagReport,
   ResumeDocument,
   ApplicationStatus,
-  StatusHistoryItem
+  StatusHistoryItem,
+  PlatformNotification,
+  AuditLogEntry,
+  PlatformSettings
 } from '../src/types';
 
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
@@ -70,6 +73,9 @@ export const users: User[] = [
     password: 'AdminPassword123!',
     name: 'Platform Moderator',
     role: 'admin',
+    admin_level: 'super_admin',
+    status: 'active',
+    verified: true,
     avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=250',
     created_at: '2026-01-01T00:00:00.000Z'
   }
@@ -528,6 +534,38 @@ export const resumeDocuments: Record<string, ResumeDocument> = {
   }
 };
 
+// Admin platform collections
+export const notifications: PlatformNotification[] = [];
+export const auditLogs: AuditLogEntry[] = [];
+
+export const defaultSettings: PlatformSettings = {
+  platform_name: 'Moxn Worklink',
+  platform_tagline: 'Career Marketplace',
+  registration_enabled: true,
+  job_approval_required: true,
+  maintenance_mode: false,
+  email_notifications_enabled: true,
+  contact_email: 'support@moxnworklink.com',
+  max_resume_size_mb: 10,
+  announcement: '',
+  updated_at: new Date().toISOString()
+};
+
+export let settings: PlatformSettings = { ...defaultSettings };
+
+export function updateSettings(patch: Partial<PlatformSettings>): PlatformSettings {
+  settings = {
+    ...settings,
+    ...patch,
+    updated_at: new Date().toISOString()
+  };
+  return settings;
+}
+
+export function getSettings(): PlatformSettings {
+  return settings;
+}
+
 // Application State Machine Validator Function
 export function validateStateTransition(
   currentStatus: ApplicationStatus,
@@ -578,7 +616,10 @@ export function saveStore(): void {
       jobs,
       applications,
       flagReports,
-      resumeDocuments
+      resumeDocuments,
+      notifications,
+      auditLogs,
+      settings
     };
     fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
@@ -633,6 +674,17 @@ export function loadStore(): void {
       if (data.resumeDocuments && typeof data.resumeDocuments === 'object' && Object.keys(data.resumeDocuments).length > 0) {
         for (const k of Object.keys(resumeDocuments)) delete resumeDocuments[k];
         Object.assign(resumeDocuments, data.resumeDocuments);
+      }
+      if (Array.isArray(data.notifications)) {
+        notifications.length = 0;
+        notifications.push(...data.notifications);
+      }
+      if (Array.isArray(data.auditLogs)) {
+        auditLogs.length = 0;
+        auditLogs.push(...data.auditLogs);
+      }
+      if (data.settings && typeof data.settings === 'object') {
+        settings = { ...defaultSettings, ...data.settings };
       }
       console.log(`[DB Engine] Persistent store loaded successfully from ${sourcePath}. Active users: ${users.length}, Jobs: ${jobs.length}`);
       if (sourcePath !== STORE_PATH) {

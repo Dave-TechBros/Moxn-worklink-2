@@ -13,7 +13,7 @@ import { CandidateProfileManager } from './views/CandidateProfileManager';
 import { EmployerDashboard } from './views/EmployerDashboard';
 import { EmployerJobPosting } from './views/EmployerJobPosting';
 import { EmployerKanbanPipeline } from './views/EmployerKanbanPipeline';
-import { AdminDashboard } from './views/AdminDashboard';
+import { AdminConsole } from './views/admin/AdminConsole';
 import { ReportModal } from './components/ReportModal';
 import { Job } from './types';
 
@@ -101,6 +101,17 @@ function MainAppContent() {
     else setActiveTab('jobs');
   };
 
+  // Admin console is a full-screen layout that replaces the public chrome.
+  if ((activeTab === 'admin-dashboard' || activeTab === 'admin-companies') && currentUser?.role === 'admin') {
+    return (
+      <div className="min-h-screen bg-slate-100 text-slate-900 font-sans antialiased">
+        <AdminConsole
+          onExitAdmin={() => setActiveTab('landing')}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans antialiased selection:bg-indigo-500 selection:text-white">
       {/* Top Header Navbar */}
@@ -172,9 +183,11 @@ function MainAppContent() {
           />
         )}
 
-        {/* ADMIN VIEWS */}
-        {(activeTab === 'admin-dashboard' || activeTab === 'admin-companies') && (
-          <AdminDashboard />
+        {/* ADMIN VIEWS (full-screen, rendered above) */}
+        {(activeTab === 'admin-dashboard' || activeTab === 'admin-companies') && currentUser?.role !== 'admin' && (
+          <div className="flex items-center justify-center py-24 text-slate-500">
+            <p className="text-sm font-semibold">You do not have access to the admin console.</p>
+          </div>
         )}
       </main>
 

@@ -1,5 +1,7 @@
 export type UserRole = 'candidate' | 'employer' | 'admin';
 
+export type AdminLevel = 'super_admin' | 'admin' | 'moderator';
+
 export type ApplicationStatus = 'new' | 'reviewing' | 'interview' | 'offer' | 'rejected';
 
 export type CompanyStatus = 'active' | 'suspended';
@@ -19,6 +21,11 @@ export interface User {
   avatar?: string;
   company_id?: string;
   created_at: string;
+  // Admin / account management extensions
+  admin_level?: AdminLevel;
+  status?: 'active' | 'suspended';
+  verified?: boolean;
+  last_login_at?: string;
 }
 
 export interface CandidateProfile {
@@ -140,4 +147,90 @@ export interface ApplicationTransitionRequest {
   to_status: ApplicationStatus;
   note?: string;
   force?: boolean;
+}
+
+export interface PlatformNotification {
+  id: string;
+  title: string;
+  body: string;
+  audience: 'all' | 'candidate' | 'employer' | 'admin' | 'user';
+  target_user_id?: string;
+  created_by_user_id: string;
+  created_by_name: string;
+  created_at: string;
+  scheduled_for?: string;
+  sent_at?: string | null;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  admin_user_id: string;
+  admin_name: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  target_title?: string;
+  details?: string;
+  ip_address?: string;
+  created_at: string;
+}
+
+export interface PlatformSettings {
+  platform_name: string;
+  platform_tagline: string;
+  registration_enabled: boolean;
+  job_approval_required: boolean;
+  maintenance_mode: boolean;
+  email_notifications_enabled: boolean;
+  contact_email: string;
+  max_resume_size_mb: number;
+  announcement: string;
+  updated_at: string;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalEmployers: number;
+  totalEmployees: number;
+  newRegistrations30d: number;
+  activeUsers: number;
+  suspendedUsers: number;
+  verifiedUsers: number;
+  totalJobs: number;
+  publishedJobs: number;
+  closedJobs: number;
+  draftJobs: number;
+  pendingApprovals: number;
+  totalApplications: number;
+  totalCompanies: number;
+  activeCompanies: number;
+  suspendedCompanies: number;
+  openReports: number;
+  totalReports: number;
+  offers: number;
+  adminCount: number;
+  moderatorCount: number;
+  systemHealthy: boolean;
+}
+
+export interface AnalyticsSeries {
+  label: string;
+  candidates: number;
+  employers: number;
+  jobs: number;
+  applications: number;
+}
+
+export interface AnalyticsData {
+  growth: AnalyticsSeries[];
+  applicationsByStatus: { status: string; count: number }[];
+  popularTags: { tag: string; count: number }[];
+  topEmployers: { company_id: string; company_name: string; jobs: number; applications: number }[];
+  engagement: {
+    dailyActive: number;
+    monthlyActive: number;
+    avgApplicationsPerJob: number;
+    conversionRate: number;
+  };
+  recentActivity: AuditLogEntry[];
 }
