@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CandidateProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export const CandidateProfileManager: React.FC = () => {
-  const { authFetch, currentUser, currentProfile, refreshAuthData } = useAuth();
+  const { authFetch, currentUser, currentProfile, refreshAuthData, applyAuthData } = useAuth();
   const { showToast } = useToast();
 
   const [saving, setSaving] = useState(false);
@@ -36,6 +36,7 @@ export const CandidateProfileManager: React.FC = () => {
   );
   const [newLinkLabel, setNewLinkLabel] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
+  const resumeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -75,7 +76,12 @@ export const CandidateProfileManager: React.FC = () => {
         });
 
         if (res.ok) {
-          await refreshAuthData();
+          const data = await res.json();
+          if (data.user || data.profile) {
+            applyAuthData({ user: data.user, profile: data.profile });
+          } else {
+            await refreshAuthData();
+          }
           showToast('Profile Picture Updated', 'Your new profile picture has been saved.', 'success');
         } else {
           throw new Error('Failed to save profile picture');
@@ -97,7 +103,12 @@ export const CandidateProfileManager: React.FC = () => {
       });
 
       if (res.ok) {
-        await refreshAuthData();
+        const data = await res.json();
+        if (data.user || data.profile) {
+          applyAuthData({ user: data.user, profile: data.profile });
+        } else {
+          await refreshAuthData();
+        }
         showToast('Profile Picture Removed', 'Your profile picture has been removed.', 'success');
       }
     } catch (err: any) {
@@ -136,6 +147,11 @@ export const CandidateProfileManager: React.FC = () => {
       return;
     }
 
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Upload Error', 'File size exceeds 10MB limit. Please upload a smaller PDF.', 'error');
+      return;
+    }
+
     try {
       const reader = new FileReader();
       reader.onload = async () => {
@@ -150,12 +166,22 @@ export const CandidateProfileManager: React.FC = () => {
           })
         });
 
-        if (res.ok) {
-          const doc = await res.json();
-          setResumeFileName(doc.filename);
-          await refreshAuthData();
-          showToast('Resume Updated', `${file.name} saved to your profile.`, 'success');
+        if (!res.ok) {
+          let message = 'Failed to upload resume document';
+          try {
+            const errData = await res.json();
+            if (errData.error) message = errData.error;
+          } catch {
+            // ignore parse errors, keep default message
+          }
+          throw new Error(message);
         }
+
+        const doc = await res.json();
+        setResumeFileName(doc.filename);
+        await refreshAuthData();
+        if (resumeInputRef.current) resumeInputRef.current.value = '';
+        showToast('Resume Updated', `${file.name} saved to your profile.`, 'success');
       };
       reader.readAsDataURL(file);
     } catch (err: any) {
@@ -170,19 +196,18 @@ export const CandidateProfileManager: React.FC = () => {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          avatar,
           headline,
           location,
           bio,
           skills,
-          links,
-          resume_file_name: resumeFileName
+          links
         })
       });
 
       if (!res.ok) throw new Error('Failed to save profile');
 
-      await refreshAuthData();
+      const updatedProfile = await res.json();
+      applyAuthData({ profile: updatedProfile });
       showToast('Profile Saved', 'Your candidate profile has been updated.', 'success');
     } catch (err: any) {
       showToast('Error', err.message, 'error');
@@ -433,7 +458,7 @@ export const CandidateProfileManager: React.FC = () => {
               </div>
               <div>
                 <p className="text-sm font-bold text-slate-900">
-                  {resumeFileName || 'Sarah_Chen_Staff_Engineer_Resume.pdf'}
+                  {resumeFileName || 'No resume uploaded yet'}
                 </p>
                 <p className="text-xs text-emerald-700 font-semibold mt-0.5">Verified PDF Document</p>
               </div>
@@ -444,6 +469,7 @@ export const CandidateProfileManager: React.FC = () => {
               <input
                 type="file"
                 accept="application/pdf"
+                ref={resumeInputRef}
                 onChange={(e) => {
                   if (e.target.files && e.target.files[0]) {
                     handleFileUpload(e.target.files[0]);

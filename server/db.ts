@@ -627,6 +627,36 @@ export function saveStore(): void {
   }
 }
 
+let saveTimer: NodeJS.Timeout | null = null;
+let saveScheduled = false;
+
+// Debounced persistence: coalesces rapid mutations into a single disk write.
+// Falls back to a synchronous write on process exit so data survives restarts.
+export function scheduleStoreSave(): void {
+  saveScheduled = true;
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveScheduled = false;
+    saveStore();
+  }, 300);
+}
+
+export function flushStore(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  saveScheduled = false;
+  saveStore();
+}
+
+process.on('exit', () => {
+  if (saveTimer || saveScheduled) {
+    saveStore();
+  }
+});
+
 export function loadStore(): void {
   try {
     let sourcePath = STORE_PATH;

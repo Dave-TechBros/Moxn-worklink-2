@@ -20,6 +20,11 @@ interface AuthContextType {
   logout: () => void;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
   refreshAuthData: () => Promise<void>;
+  applyAuthData: (data: {
+    user?: User;
+    profile?: CandidateProfile | null;
+    company?: Company | null;
+  }) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -186,6 +191,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('moxn_active_user_id');
   };
 
+  const applyAuthData = (data: {
+    user?: User;
+    profile?: CandidateProfile | null;
+    company?: Company | null;
+  }) => {
+    if (data.user) setCurrentUser(data.user);
+    if (data.profile !== undefined) setCurrentProfile(data.profile);
+    if (data.company !== undefined) setCurrentCompany(data.company);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -199,7 +214,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerUser,
         logout,
         authFetch,
-        refreshAuthData
+        refreshAuthData,
+        applyAuthData
       }}
     >
       {children}

@@ -25,7 +25,8 @@ import {
   notifications as memNotifications,
   auditLogs as memAuditLogs,
   getSettings,
-  updateSettings
+  updateSettings,
+  scheduleStoreSave
 } from './db.js';
 
 const isPgAvailable = () => Boolean(process.env.SQL_HOST);
@@ -108,10 +109,14 @@ export async function pgCreateUser(user: User): Promise<User> {
           name: user.name,
           role: user.role,
           avatar: user.avatar || null,
-          company_id: user.company_id || null
+          company_id: user.company_id || null,
+          password: user.password ?? null
         }
       }).returning();
-      if (res[0]) return res[0] as User;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as User;
+      }
     } catch (err) {
       console.warn('Postgres insert failed, using memory store:', err);
     }
@@ -120,9 +125,11 @@ export async function pgCreateUser(user: User): Promise<User> {
   const existingIdx = memUsers.findIndex((u) => u.id === user.id || u.email.toLowerCase().trim() === normalizedEmail);
   if (existingIdx >= 0) {
     memUsers[existingIdx] = { ...memUsers[existingIdx], ...userToSave };
+    scheduleStoreSave();
     return memUsers[existingIdx];
   } else {
     memUsers.push(userToSave);
+    scheduleStoreSave();
     return userToSave;
   }
 }
@@ -161,12 +168,16 @@ export async function pgUpsertCandidateProfile(profile: CandidateProfile): Promi
           updated_at: profile.updated_at
         }
       }).returning();
-      if (res[0]) return res[0] as CandidateProfile;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as CandidateProfile;
+      }
     } catch (err) {
       console.warn('Postgres profile upsert failed, using memory store:', err);
     }
   }
   memProfiles[profile.user_id] = profile;
+  scheduleStoreSave();
   return profile;
 }
 
@@ -212,12 +223,16 @@ export async function pgCreateCompany(company: Company): Promise<Company> {
   if (isPgAvailable()) {
     try {
       const res = await db.insert(schema.companies).values(company).returning();
-      if (res[0]) return res[0] as Company;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Company;
+      }
     } catch (err) {
       console.warn('Postgres create company failed, using memory store:', err);
     }
   }
   memCompanies.push(company);
+  scheduleStoreSave();
   return company;
 }
 
@@ -229,7 +244,10 @@ export async function pgUpdateCompanyStatus(companyId: string, status: 'active' 
       for (const job of allJobs) {
         await db.update(schema.jobs).set({ company_status: status }).where(eq(schema.jobs.id, job.id));
       }
-      if (res[0]) return res[0] as Company;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Company;
+      }
     } catch (err) {
       console.warn('Postgres update company status failed, using memory store:', err);
     }
@@ -239,6 +257,7 @@ export async function pgUpdateCompanyStatus(companyId: string, status: 'active' 
     comp.status = status;
     memJobs.filter((j) => j.company_id === companyId).forEach((j) => { j.company_status = status; });
   }
+  scheduleStoreSave();
   return comp || null;
 }
 
@@ -339,12 +358,16 @@ export async function pgCreateJob(job: Job): Promise<Job> {
   if (isPgAvailable()) {
     try {
       const res = await db.insert(schema.jobs).values(job).returning();
-      if (res[0]) return res[0] as Job;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Job;
+      }
     } catch (err) {
       console.warn('Postgres create job failed, using memory store:', err);
     }
   }
   memJobs.unshift(job);
+  scheduleStoreSave();
   return job;
 }
 
@@ -352,7 +375,10 @@ export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise
   if (isPgAvailable()) {
     try {
       const res = await db.update(schema.jobs).set(jobData).where(eq(schema.jobs.id, jobId)).returning();
-      if (res[0]) return res[0] as Job;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Job;
+      }
     } catch (err) {
       console.warn('Postgres update job failed, using memory store:', err);
     }
@@ -360,6 +386,7 @@ export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise
   const idx = memJobs.findIndex((j) => j.id === jobId);
   if (idx >= 0) {
     memJobs[idx] = { ...memJobs[idx], ...jobData };
+    scheduleStoreSave();
     return memJobs[idx];
   }
   return null;
@@ -369,7 +396,10 @@ export async function pgDeleteJob(jobId: string): Promise<boolean> {
   if (isPgAvailable()) {
     try {
       const res = await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId)).returning();
-      if (res[0]) return true;
+      if (res[0]) {
+        scheduleStoreSave();
+        return true;
+      }
     } catch (err) {
       console.warn('Postgres delete job failed, using memory store:', err);
     }
@@ -377,6 +407,7 @@ export async function pgDeleteJob(jobId: string): Promise<boolean> {
   const idx = memJobs.findIndex((j) => j.id === jobId);
   if (idx >= 0) {
     memJobs.splice(idx, 1);
+    scheduleStoreSave();
     return true;
   }
   return false;
@@ -433,7 +464,10 @@ export async function pgCreateApplication(appData: Application): Promise<Applica
       if (job) {
         await db.update(schema.jobs).set({ applicant_count: (job.applicant_count || 0) + 1 }).where(eq(schema.jobs.id, job.id));
       }
-      if (res[0]) return res[0] as Application;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Application;
+      }
     } catch (err) {
       console.warn('Postgres create application failed, using memory store:', err);
     }
@@ -443,6 +477,7 @@ export async function pgCreateApplication(appData: Application): Promise<Applica
   if (job) {
     job.applicant_count = (job.applicant_count || 0) + 1;
   }
+  scheduleStoreSave();
   return appData;
 }
 
@@ -461,7 +496,10 @@ export async function pgUpdateApplicationStatus(
           .set({ status: targetStatus, status_history: newHistory })
           .where(eq(schema.applications.id, appId))
           .returning();
-        if (res[0]) return res[0] as Application;
+        if (res[0]) {
+          scheduleStoreSave();
+          return res[0] as Application;
+        }
       }
     } catch (err) {
       console.warn('Postgres update app status failed, using memory store:', err);
@@ -471,6 +509,7 @@ export async function pgUpdateApplicationStatus(
   if (app) {
     app.status = targetStatus;
     app.status_history = [...(app.status_history || []), historyEntry];
+    scheduleStoreSave();
     return app;
   }
   return null;
@@ -484,7 +523,10 @@ export async function pgUpdateApplicationNotes(appId: string, internalNotes: str
         .set({ internal_notes: internalNotes })
         .where(eq(schema.applications.id, appId))
         .returning();
-      if (res[0]) return res[0] as Application;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as Application;
+      }
     } catch (err) {
       console.warn('Postgres update app notes failed, using memory store:', err);
     }
@@ -492,6 +534,7 @@ export async function pgUpdateApplicationNotes(appId: string, internalNotes: str
   const app = memApps.find((a) => a.id === appId);
   if (app) {
     app.internal_notes = internalNotes;
+    scheduleStoreSave();
     return app;
   }
   return null;
@@ -515,12 +558,16 @@ export async function pgCreateFlagReport(report: FlagReport): Promise<FlagReport
   if (isPgAvailable()) {
     try {
       const res = await db.insert(schema.flagReports).values(report).returning();
-      if (res[0]) return res[0] as FlagReport;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as FlagReport;
+      }
     } catch (err) {
       console.warn('Postgres create flag report failed, using memory store:', err);
     }
   }
   memFlags.unshift(report);
+  scheduleStoreSave();
   return report;
 }
 
@@ -528,13 +575,17 @@ export async function pgResolveFlagReport(id: string): Promise<FlagReport | null
   if (isPgAvailable()) {
     try {
       const res = await db.update(schema.flagReports).set({ status: 'resolved' }).where(eq(schema.flagReports.id, id)).returning();
-      if (res[0]) return res[0] as FlagReport;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as FlagReport;
+      }
     } catch (err) {
       console.warn('Postgres resolve flag report failed, using memory store:', err);
     }
   }
   const rep = memFlags.find((r) => r.id === id);
   if (rep) rep.status = 'resolved';
+  scheduleStoreSave();
   return rep || null;
 }
 
@@ -557,12 +608,16 @@ export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<Resum
   if (isPgAvailable()) {
     try {
       const res = await db.insert(schema.resumeDocuments).values(doc).returning();
-      if (res[0]) return res[0] as ResumeDocument;
+      if (res[0]) {
+        scheduleStoreSave();
+        return res[0] as ResumeDocument;
+      }
     } catch (err) {
       console.warn('Postgres create resume doc failed, using memory store:', err);
     }
   }
   memResumes[doc.id] = doc;
+  scheduleStoreSave();
   return doc;
 }
 
@@ -587,6 +642,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
       await db.delete(schema.users).where(eq(schema.users.id, userId));
       for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
       for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
+      scheduleStoreSave();
       return true;
     } catch (err) {
       console.warn('Postgres delete user failed, using memory store:', err);
@@ -596,6 +652,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
   if (idx >= 0) memUsers.splice(idx, 1);
   for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
   for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
+  scheduleStoreSave();
   return true;
 }
 
@@ -604,6 +661,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
 // -------------------------------------------------------------
 export async function pgCreateNotification(n: PlatformNotification): Promise<PlatformNotification> {
   memNotifications.unshift(n);
+  scheduleStoreSave();
   return n;
 }
 
@@ -616,6 +674,7 @@ export async function pgGetNotifications(): Promise<PlatformNotification[]> {
 // -------------------------------------------------------------
 export async function pgCreateAuditLog(entry: AuditLogEntry): Promise<AuditLogEntry> {
   memAuditLogs.unshift(entry);
+  scheduleStoreSave();
   return entry;
 }
 
@@ -631,7 +690,9 @@ export async function pgGetSettings(): Promise<PlatformSettings> {
 }
 
 export async function pgUpdateSettings(patch: Partial<PlatformSettings>): Promise<PlatformSettings> {
-  return updateSettings(patch);
+  const updated = updateSettings(patch);
+  scheduleStoreSave();
+  return updated;
 }
 
 if (isPgAvailable()) {

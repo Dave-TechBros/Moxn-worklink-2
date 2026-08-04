@@ -618,13 +618,34 @@ app.post("/api/candidate/resume", async (req, res) => {
       return res.status(400).json({ error: "Filename is required" });
     }
 
+    const maxSizeMb = (await pgGetSettings()).max_resume_size_mb || 10;
+    if (fileSize && fileSize > maxSizeMb * 1024 * 1024) {
+      return res.status(400).json({
+        error: `File size exceeds the ${maxSizeMb}MB limit. Please upload a smaller PDF.`
+      });
+    }
+
+    if (!dataUrl || typeof dataUrl !== "string") {
+      return res.status(400).json({ error: "Resume data is required" });
+    }
+
+    const lowerData = dataUrl.toLowerCase();
+    const isPdf =
+      lowerData.startsWith("data:application/pdf") ||
+      lowerData.includes("data:application/pdf;base64,") ||
+      /^data:[^;]*pdf/i.test(dataUrl) ||
+      /^data:[^,]+;base64,JVBERi0/i.test(dataUrl);
+    if (!isPdf) {
+      return res.status(400).json({ error: "Only PDF documents are accepted for candidate resumes." });
+    }
+
     const newResume = await pgCreateResumeDocument({
       id: `res-${Date.now()}`,
       user_id: user.id,
       filename: filename,
       file_size: fileSize || 150000,
       content_type: "application/pdf",
-      data_url: dataUrl || "data:application/pdf;base64,JVBERi0xLjQKJ...[Uploaded PDF Document]",
+      data_url: dataUrl,
       uploaded_at: new Date().toISOString()
     });
 
@@ -706,8 +727,8 @@ app.post("/api/candidate/applications", async (req, res) => {
     }
 
     const profile = await pgGetCandidateProfile(user.id);
-    const resumeId = resume_file_id || profile?.resume_file_id || "res-cand-1";
-    const resumeName = profile?.resume_file_name || "Resume_Document.pdf";
+    const resumeId = resume_file_id || profile?.resume_file_id || null;
+    const resumeName = profile?.resume_file_name || null;
 
     const now = new Date().toISOString();
     const initialHistory: StatusHistoryItem = {
@@ -731,7 +752,7 @@ app.post("/api/candidate/applications", async (req, res) => {
       status_history: [initialHistory],
       created_at: now,
       candidate_name: user.name,
-      candidate_headline: profile?.headline || "Software Engineering Professional",
+      candidate_headline: profile?.headline || "",
       candidate_email: user.email,
       job_title: job.title,
       company_name: job.company_name,
@@ -1600,6 +1621,13 @@ app.use((req, res) => {
 
 // Global JSON error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const status = err?.status || err?.statusCode || (err?.type === 'entity.too.large' ? 413 : 0);
+  if (status && status >= 400 && status < 500) {
+    if (status === 413) {
+      return res.status(413).json({ error: "Payload too large. The uploaded file exceeds the maximum allowed size." });
+    }
+    return res.status(status).json({ error: err?.message || "Bad request." });
+  }
   console.error("Unhandled API Server Error:", err);
   res.status(500).json({ error: err?.message || "Internal server error occurred." });
 });

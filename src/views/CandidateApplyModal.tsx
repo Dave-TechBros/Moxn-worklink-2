@@ -39,10 +39,10 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
 
   // Resume Upload / Selection State
   const [selectedResumeId, setSelectedResumeId] = useState<string>(
-    currentProfile?.resume_file_id || 'res-cand-1'
+    currentProfile?.resume_file_id || ''
   );
   const [selectedResumeName, setSelectedResumeName] = useState<string>(
-    currentProfile?.resume_file_name || 'Sarah_Chen_Staff_Engineer_Resume.pdf'
+    currentProfile?.resume_file_name || ''
   );
   const [uploadingResume, setUploadingResume] = useState<boolean>(false);
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -198,28 +198,32 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
               <div>
                 <span className="font-bold text-slate-500">Professional Headline:</span>
                 <p className="font-medium text-slate-900 mt-0.5">
-                  {currentProfile?.headline || 'Staff Engineer | Fullstack & Cloud Systems'}
+                  {currentProfile?.headline || 'Not set — update your profile'}
                 </p>
               </div>
 
               <div>
                 <span className="font-bold text-slate-500">Location:</span>
                 <p className="font-medium text-slate-900 mt-0.5">
-                  {currentProfile?.location || 'San Francisco, CA'}
+                  {currentProfile?.location || 'Not set — update your profile'}
                 </p>
               </div>
 
               <div>
                 <span className="font-bold text-slate-500">Skills Highlight:</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {(currentProfile?.skills || ['React', 'TypeScript', 'Node.js']).map((s) => (
-                    <span
-                      key={s}
-                      className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 text-[11px] font-medium"
-                    >
-                      {s}
-                    </span>
-                  ))}
+                  {currentProfile?.skills && currentProfile.skills.length > 0 ? (
+                    currentProfile.skills.map((s) => (
+                      <span
+                        key={s}
+                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 text-[11px] font-medium"
+                      >
+                        {s}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[11px] text-slate-500">No skills listed yet</span>
+                  )}
                 </div>
               </div>
             </div>

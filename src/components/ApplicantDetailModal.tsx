@@ -280,7 +280,7 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                     <div>
                       <h1 className="text-2xl font-black text-slate-900">{application.candidate_name}</h1>
                       <p className="text-xs font-bold text-indigo-600 mt-1">{application.candidate_headline}</p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{application.candidate_email} • {profile?.location || 'San Francisco, CA'}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{application.candidate_email} • {profile?.location || 'Location not provided'}</p>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Application File</span>
@@ -372,7 +372,7 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                   </div>
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Location</span>
-                    <p className="font-medium text-slate-800">{profile?.location || application.location || 'San Francisco, CA'}</p>
+                    <p className="font-medium text-slate-800">{profile?.location || application.location || 'Location not provided'}</p>
                   </div>
                   {profile?.years_experience !== undefined && (
                     <div>
