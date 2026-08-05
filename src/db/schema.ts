@@ -9,6 +9,10 @@ export const users = pgTable('users', {
   avatar: text('avatar'),
   company_id: text('company_id'),
   created_at: text('created_at').notNull(),
+  admin_level: text('admin_level'),
+  status: text('status'),
+  verified: text('verified'),
+  last_login_at: text('last_login_at'),
 });
 
 export const candidateProfiles = pgTable('candidate_profiles', {

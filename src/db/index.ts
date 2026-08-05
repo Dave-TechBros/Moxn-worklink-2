@@ -244,9 +244,14 @@ export const ensureSchema = (): Promise<boolean> => {
     const client = await pool.connect();
     try {
       for (const table of Object.values(schema) as any[]) {
-        if (table && table[drizzleTableName]) {
-          await client.query(buildCreateTable(table));
-        }
+        if (!table || !table[drizzleTableName]) continue;
+        await client.query(buildCreateTable(table));
+        // Existing tables may predate newer columns (e.g. the users table was
+        // created before admin_level/status/verified/last_login_at existed).
+        // CREATE TABLE IF NOT EXISTS is a no-op for them, so add any missing
+        // columns idempotently instead of leaving the ORM unable to read/write
+        // fields the rest of the app depends on.
+        await ensureColumns(client, table);
       }
       return true;
     } catch (err) {
@@ -257,6 +262,31 @@ export const ensureSchema = (): Promise<boolean> => {
     }
   })();
   return schemaReady;
+};
+
+// Adds columns that exist in the drizzle schema but are missing from the actual
+// table. Checks information_schema so repeated cold starts never try to add a
+// column that already exists.
+const ensureColumns = async (client: any, table: any): Promise<void> => {
+  const tableName = table[drizzleTableName];
+  const cols = table[drizzleColumns];
+
+  const existingResult = await client.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+    [tableName]
+  );
+  const existing = new Set((existingResult.rows || []).map((r: any) => r.column_name));
+
+  for (const key of Object.keys(cols)) {
+    const col = cols[key];
+    if (existing.has(col.name)) continue;
+    let def = `"${col.name}" ${ddlType(col.columnType)}`;
+    if (col.notNull) def += ' NOT NULL';
+    const defClause = ddlDefault(col.default);
+    if (defClause) def += ` DEFAULT ${defClause}`;
+    await client.query(`ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS ${def}`);
+    console.log(`[DB] Added missing column "${tableName}.${col.name}"`);
+  }
 };
 
 // Safe Proxy for db exports so top-level imports won't crash when SQL_HOST is omitted

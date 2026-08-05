@@ -1,5 +1,5 @@
 import { db, schema, ensureSchema, isPgConfigured, getDb } from '../src/db/index.js';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and, isNull } from 'drizzle-orm';
 import {
   User,
   CandidateProfile,
@@ -69,9 +69,15 @@ export async function probeDatabaseConnection(force = false): Promise<{ ok: bool
 export async function seedPgDatabase() {
   if (!isPgAvailable()) return;
   try {
-    // Ensure tables exist before touching them; without this the first
-    // request would fail with "relation does not exist" on fresh databases.
+    // Ensure tables exist (and any newer columns are added) before touching
+    // them; without this the first request would fail with "relation does not
+    // exist" or "column does not exist" on pre-existing databases.
     await ensureSchema();
+    // Existing databases created before the users table had admin_level cannot
+    // hold the seeded admin's level. Backfill it so requireAdminLevel works.
+    await db.update(schema.users)
+      .set({ admin_level: 'super_admin' })
+      .where(and(eq(schema.users.role, 'admin'), isNull(schema.users.admin_level)));
     const existingUsers = await db.select().from(schema.users).limit(1);
     if (existingUsers.length === 0) {
       console.log('[Cloud SQL] Seeding initial database records...');
