@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import express from "express";
 import {
   users as memoryUsers,
@@ -39,6 +40,7 @@ import {
   pgUpdateSettings,
   seedPgDatabase
 } from "./pg-db.js";
+import { isPgConfigured } from "../src/db/index.js";
 import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
 
 export const app = express();
@@ -104,11 +106,61 @@ app.use((req, res, next) => {
 // IMPORTANT: Never silently fall back to a default account. If the header is
 // missing or references a user that no longer exists, return null so callers
 // treat the request as unauthenticated instead of impersonating another user.
+//
+// Fallback to the signed session token: serverless deploys without a database
+// can route a follow-up request (e.g. the /me refresh right after register, or
+// an application submit) to a DIFFERENT warm instance than the one that wrote
+// the new account, so an in-memory lookup fails and the account looks
+// "unauthorized". A stateless signed token lets any instance verify the session
+// without a shared store. It is strictly more secure than the raw x-user-id
+// header, which any caller could already forge.
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || "moxn-worklink-session-secret-2026";
+
+const signSession = (user: User): string => {
+  const payload = JSON.stringify({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatar: user.avatar || null,
+    company_id: user.company_id || null,
+    created_at: user.created_at,
+    admin_level: user.admin_level || null,
+    status: user.status || null,
+    verified: user.verified || null
+  });
+  const data = Buffer.from(payload, "utf-8").toString("base64url");
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+  return `${data}.${sig}`;
+};
+
+const verifySession = (token: string): User | null => {
+  try {
+    const dot = token.indexOf(".");
+    if (dot === -1) return null;
+    const data = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expected = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    return JSON.parse(Buffer.from(data, "base64url").toString("utf-8"));
+  } catch {
+    return null;
+  }
+};
+
 const getAuthUser = async (req: express.Request) => {
   const userIdHeader = req.headers["x-user-id"] as string;
   if (userIdHeader && userIdHeader !== 'null' && userIdHeader !== 'undefined' && userIdHeader.trim() !== '') {
     const found = await pgGetUserById(userIdHeader);
     if (found) return found;
+  }
+  const sessionToken = req.headers["x-session-token"] as string;
+  if (sessionToken && sessionToken.trim() !== '') {
+    const fromToken = verifySession(sessionToken);
+    if (fromToken) return fromToken;
   }
   return null;
 };
@@ -181,13 +233,24 @@ const sanitizeString = (value: unknown, maxLen = 500): string => {
 // API ROUTES
 // -------------------------------------------------------------
 
-// Health check
+// Health check. Reports which database configuration the running instance can
+// actually see (names only, never values). On Vercel this shows whether the
+// DATABASE_URL / POSTGRES_URL / PRISMA_DATABASE_URL env vars reached the
+// function — a common cause of "account disappears / unauthorized" bugs.
 app.get("/api/health", (req, res) => {
+  const dbVars = {
+    DATABASE_URL: Boolean(process.env.DATABASE_URL),
+    POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
+    PRISMA_DATABASE_URL: Boolean(process.env.PRISMA_DATABASE_URL),
+    SQL_HOST: Boolean(process.env.SQL_HOST)
+  };
+  const configured = Object.entries(dbVars).some(([, present]) => present);
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
     status: "ok",
-    database: process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PRISMA_DATABASE_URL || process.env.SQL_HOST
-      ? "Cloud SQL PostgreSQL"
-      : "In-Memory Store",
+    database: configured ? "Cloud SQL PostgreSQL" : "In-Memory Store",
+    dbConfigDetected: dbVars,
+    instance: process.env.VERCEL ? "vercel-serverless" : "node",
     timestamp: new Date().toISOString()
   });
 });
@@ -253,7 +316,7 @@ app.post("/api/auth/login", async (req, res) => {
       company = (await pgGetCompanyByOwnerUserId(found.id)) || (found.company_id ? await pgGetCompanyById(found.company_id) : null);
     }
 
-    res.json({ success: true, user: found, profile, company });
+    res.json({ success: true, user: found, profile, company, token: signSession(found) });
   } catch (err) {
     console.error('API /api/auth/login error:', err);
     res.status(500).json({ error: "Login failed." });
@@ -320,7 +383,7 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    res.json({ success: true, user: newUser, profile, company: createdCompany });
+    res.json({ success: true, user: newUser, profile, company: createdCompany, token: signSession(newUser) });
   } catch (err) {
     console.error('API /api/auth/register error:', err);
     res.status(500).json({ error: "Registration failed." });
@@ -334,7 +397,7 @@ app.post("/api/auth/switch-user", async (req, res) => {
     if (!found) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json({ success: true, user: found });
+    res.json({ success: true, user: found, token: signSession(found) });
   } catch (err) {
     res.status(500).json({ error: "User switch failed" });
   }

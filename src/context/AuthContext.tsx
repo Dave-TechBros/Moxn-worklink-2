@@ -31,6 +31,27 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const SESSION_KEY = 'moxn_active_user_id';
 const SNAPSHOT_KEY = 'moxn_auth_snapshot';
+const TOKEN_KEY = 'moxn_session_token';
+
+const readToken = (): string | null => {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const writeToken = (token: string | null) => {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+};
 
 interface AuthSnapshot {
   user: User | null;
@@ -69,6 +90,7 @@ const writeSnapshot = (snapshot: AuthSnapshot) => {
 const clearSnapshot = () => {
   try {
     localStorage.removeItem(SNAPSHOT_KEY);
+    localStorage.removeItem(TOKEN_KEY);
   } catch {
     // ignore
   }
@@ -104,19 +126,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return Boolean(localStorage.getItem(SESSION_KEY));
   });
 
-  const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  const authFetch = async (url: string, options: RequestInit = {}, _retried = false): Promise<Response> => {
     const headers = new Headers(options.headers || {});
     if (activeUserId) {
       headers.set('x-user-id', activeUserId);
+    }
+    const sessionToken = readToken();
+    if (sessionToken) {
+      headers.set('x-session-token', sessionToken);
     }
     if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
       headers.set('Content-Type', 'application/json');
     }
 
-    return fetch(url, {
-      ...options,
-      headers
-    });
+    const doFetch = () =>
+      fetch(url, {
+        ...options,
+        headers
+      });
+
+    const res = await doFetch();
+
+    if (res.status === 401 && !_retried && !url.includes('/api/auth/')) {
+      // The server could not resolve our session. This commonly happens on
+      // serverless when the request lands on a different instance than the one
+      // that registered the user (or the DB connection hiccupped). Re-validate
+      // the session once and retry before failing the request.
+      await refreshAuthData();
+      return doFetch();
+    }
+
+    return res;
   };
 
   const refreshAuthData = async () => {
@@ -189,7 +229,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchUser = async (userId: string) => {
     setLoading(true);
-    setActiveUserId(userId);
+    try {
+      const res = await fetch('/api/auth/switch-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const data = await safeParseJson(res);
+      if (res.ok && data.user) {
+        setActiveUserId(data.user.id);
+        writeToken(data.token || null);
+        return;
+      }
+      // Fallback: switch locally even if the endpoint hiccupped; the /me
+      // refresh below re-validates and may clear the stale token.
+      setActiveUserId(userId);
+      writeToken(null);
+    } catch {
+      setActiveUserId(userId);
+      writeToken(null);
+    }
   };
 
   const safeParseJson = async (res: Response) => {
@@ -234,6 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setActiveUserId(data.user.id);
+      writeToken(data.token || null);
       persistAuth(data.user, data.profile || null, data.company || null, data.availableUsers || []);
       setLoading(false);
       return { success: true };
@@ -265,6 +325,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setActiveUserId(resData.user.id);
+      writeToken(resData.token || null);
       persistAuth(resData.user, resData.profile || null, resData.company || null, resData.availableUsers || []);
       setLoading(false);
       return { success: true };

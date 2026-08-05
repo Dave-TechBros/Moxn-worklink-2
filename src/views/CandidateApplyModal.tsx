@@ -81,6 +81,11 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
         });
 
         if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              'Your session could not be verified by the server. Please sign in again and retry.'
+            );
+          }
           throw new Error('Failed to upload resume document');
         }
 
@@ -116,6 +121,11 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error(
+            'Your session could not be verified by the server. Please sign in again and retry — if this persists, the platform database is not connected.'
+          );
+        }
         throw new Error(data.error || 'Failed to submit application');
       }
 
