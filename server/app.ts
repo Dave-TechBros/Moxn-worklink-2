@@ -155,8 +155,13 @@ const verifySession = (token: string): User | null => {
 const getAuthUser = async (req: express.Request) => {
   const userIdHeader = req.headers["x-user-id"] as string;
   if (userIdHeader && userIdHeader !== 'null' && userIdHeader !== 'undefined' && userIdHeader.trim() !== '') {
-    const found = await pgGetUserById(userIdHeader);
-    if (found) return found;
+    try {
+      const found = await pgGetUserById(userIdHeader);
+      if (found) return found;
+    } catch (err) {
+      // DB query failed (transient). Fall through to the stateless signed
+      // token, which verifies without touching the database.
+    }
   }
   const sessionToken = req.headers["x-session-token"] as string;
   if (sessionToken && sessionToken.trim() !== '') {
@@ -317,7 +322,13 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ error: "Password is required." });
     }
 
-    const found = await pgGetUserByEmail(email);
+    let found: User | null = null;
+    try {
+      found = await pgGetUserByEmail(email);
+    } catch (err) {
+      console.error('API /api/auth/login DB lookup failed:', err);
+      return res.status(503).json({ error: "Service temporarily unavailable. Please try again in a moment — your account is safe." });
+    }
     if (!found) {
       return res.status(401).json({ error: "No account found with this email. Please check your email or register a new account." });
     }

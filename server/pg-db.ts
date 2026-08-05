@@ -108,12 +108,13 @@ export async function seedPgDatabase() {
 // -------------------------------------------------------------
 export async function pgGetUserById(id: string): Promise<User | null> {
   if (isPgAvailable()) {
-    try {
-      const res = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
-      if (res[0]) return res[0] as User;
-    } catch (err) {
-      console.warn('Postgres query failed, falling back to memory store:', err);
-    }
+    // DB mode. A query error must NOT be conflated with "account not found":
+    // throwing here lets auth routes surface a retryable error instead of
+    // telling the user a real account vanished. The memory store is only used
+    // when no database is configured at all (demo/local mode).
+    const res = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+    if (res[0]) return res[0] as User;
+    return null;
   }
   return memUsers.find((u) => u.id === id) || null;
 }
@@ -121,12 +122,9 @@ export async function pgGetUserById(id: string): Promise<User | null> {
 export async function pgGetUserByEmail(email: string): Promise<User | null> {
   const normalized = email.toLowerCase().trim();
   if (isPgAvailable()) {
-    try {
-      const res = await db.select().from(schema.users).where(eq(schema.users.email, normalized)).limit(1);
-      if (res[0]) return res[0] as User;
-    } catch (err) {
-      console.warn('Postgres query failed, falling back to memory store:', err);
-    }
+    const res = await db.select().from(schema.users).where(eq(schema.users.email, normalized)).limit(1);
+    if (res[0]) return res[0] as User;
+    return null;
   }
   return memUsers.find((u) => u.email.toLowerCase().trim() === normalized) || null;
 }
@@ -136,25 +134,26 @@ export async function pgCreateUser(user: User): Promise<User> {
   const userToSave = { ...user, email: normalizedEmail };
 
   if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.users).values(userToSave).onConflictDoUpdate({
-        target: schema.users.id,
-        set: {
-          email: normalizedEmail,
-          name: user.name,
-          role: user.role,
-          avatar: user.avatar || null,
-          company_id: user.company_id || null,
-          password: user.password ?? null
-        }
-      }).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as User;
+    // DB mode: never silently write the account only to the ephemeral
+    // per-instance memory store — that is exactly how accounts "disappear"
+    // after logout. If the insert fails, throw so registration surfaces an
+    // error instead of reporting a success that cannot be logged into later.
+    const res = await db.insert(schema.users).values(userToSave).onConflictDoUpdate({
+      target: schema.users.id,
+      set: {
+        email: normalizedEmail,
+        name: user.name,
+        role: user.role,
+        avatar: user.avatar || null,
+        company_id: user.company_id || null,
+        password: user.password ?? null
       }
-    } catch (err) {
-      console.warn('Postgres insert failed, using memory store:', err);
+    }).returning();
+    if (!res[0]) {
+      throw new Error('User insert returned no row.');
     }
+    flushStore();
+    return res[0] as User;
   }
 
   const existingIdx = memUsers.findIndex((u) => u.id === user.id || u.email.toLowerCase().trim() === normalizedEmail);
