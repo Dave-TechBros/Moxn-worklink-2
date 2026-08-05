@@ -1,5 +1,5 @@
-import { db, schema, ensureSchema, isPgConfigured } from '../src/db/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { db, schema, ensureSchema, isPgConfigured, getDb } from '../src/db/index.js';
+import { eq, desc, sql } from 'drizzle-orm';
 import {
   User,
   CandidateProfile,
@@ -30,6 +30,38 @@ import {
 } from './db.js';
 
 const isPgAvailable = () => isPgConfigured();
+
+// True connection check used by /api/health. Env vars can be present yet
+// unusable (wrong scheme, bad credentials, unreachable host), and in that case
+// the pg-* helpers silently fall back to the ephemeral per-instance memory
+// store — which makes new accounts "disappear" after logout. Result is cached
+// briefly so the health probe does not hammer the database.
+let probeCache: { at: number; result: { ok: boolean; error?: string | null } } | null = null;
+
+export async function probeDatabaseConnection(force = false): Promise<{ ok: boolean; error?: string | null }> {
+  if (!force && probeCache && Date.now() - probeCache.at < 30000) {
+    return probeCache.result;
+  }
+  const instance = getDb();
+  if (!instance) {
+    const result = { ok: false, error: 'no usable database configuration' };
+    probeCache = { at: Date.now(), result };
+    return result;
+  }
+  try {
+    await Promise.race([
+      instance.execute(sql`select 1`),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('connection timed out')), 5000))
+    ]);
+    const result = { ok: true, error: null };
+    probeCache = { at: Date.now(), result };
+    return result;
+  } catch (err: any) {
+    const result = { ok: false, error: String(err?.message || err).slice(0, 300) };
+    probeCache = { at: Date.now(), result };
+    return result;
+  }
+}
 
 // -------------------------------------------------------------
 // SEEDING FUNCTION

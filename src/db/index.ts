@@ -36,8 +36,9 @@ const CONNECTION_URL_VARS = ['DATABASE_URL', 'POSTGRES_URL', 'PRISMA_DATABASE_UR
 // Prisma Postgres connection strings use a "prisma+postgres://" prefix that
 // node-postgres cannot parse. Everything after the scheme is a standard
 // postgres URI, so strip the "prisma+" marker to get a usable URL. URLs using
-// the "prisma://" scheme (Prisma Accelerator) speak a proprietary protocol and
-// cannot be used by node-postgres at all — those are skipped.
+// the "prisma://" scheme (Prisma Accelerator / Prisma Postgres proxy) speak a
+// proprietary protocol and cannot be used by node-postgres at all — those are
+// skipped.
 const normalizeConnectionUrl = (raw: string): string | null => {
   const trimmed = raw.trim();
   if (trimmed.startsWith('prisma+postgres://')) {
@@ -61,8 +62,36 @@ const resolveConnectionUrl = (): string | null => {
   return null;
 };
 
+// True only when there is a connection node-postgres can actually use: either a
+// real postgres connection string (DATABASE_URL / POSTGRES_URL / a
+// prisma+postgres:// PRISMA_DATABASE_URL) or a split SQL_* config. A bare
+// prisma:// URL is present-but-unusable, so it must NOT enable "DB mode" —
+// otherwise every query fails and the app silently falls back to the ephemeral
+// per-instance memory store while health reports a healthy PostgreSQL.
+export const hasUsablePgConfig = (): boolean => {
+  if (process.env.SQL_HOST) return true;
+  for (const key of CONNECTION_URL_VARS) {
+    const raw = process.env[key];
+    if (raw && normalizeConnectionUrl(raw)) return true;
+  }
+  return false;
+};
+
+// Redacted diagnostic: reports only the scheme (never the credentials) of each
+// configured connection string so /api/health can show why a deployment is or
+// is not using the database.
+export const getDbConfigDiagnostics = (): Record<string, string | null> => {
+  const schemes: Record<string, string | null> = {};
+  for (const key of CONNECTION_URL_VARS) {
+    const raw = process.env[key];
+    schemes[key] = raw ? (raw.match(/^([a-zA-Z+]+):\/\//)?.[1] || 'unknown') : null;
+  }
+  schemes.SQL_HOST = process.env.SQL_HOST ? 'split-config' : null;
+  return schemes;
+};
+
 export const createPool = () => {
-  if (!PoolClass || !isPgConfigured()) {
+  if (!PoolClass || !hasUsablePgConfig()) {
     return null;
   }
   if (!global._postgresPool) {
@@ -87,7 +116,7 @@ export const createPool = () => {
           max: POOL_MAX,
           connectionTimeoutMillis: 15000,
         });
-      } else {
+      } else if (process.env.SQL_HOST) {
         global._postgresPool = new PoolClass({
           host: process.env.SQL_HOST,
           user: process.env.SQL_USER,
@@ -98,6 +127,12 @@ export const createPool = () => {
           max: POOL_MAX,
           connectionTimeoutMillis: 15000,
         });
+      } else {
+        // Env vars are present but none is usable (e.g. only a prisma:// URL
+        // that node-postgres cannot connect to). Do not build a pool against
+        // localhost defaults — leave it unset so the app runs in memory mode
+        // instead of failing every query.
+        return null;
       }
 
       global._postgresPool.on('error', (err) => {

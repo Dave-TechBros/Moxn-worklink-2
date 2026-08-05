@@ -38,9 +38,10 @@ import {
   pgGetAuditLogs,
   pgGetSettings,
   pgUpdateSettings,
-  seedPgDatabase
+  seedPgDatabase,
+  probeDatabaseConnection
 } from "./pg-db.js";
-import { isPgConfigured } from "../src/db/index.js";
+import { hasUsablePgConfig, getDbConfigDiagnostics } from "../src/db/index.js";
 import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
 
 export const app = express();
@@ -234,22 +235,39 @@ const sanitizeString = (value: unknown, maxLen = 500): string => {
 // -------------------------------------------------------------
 
 // Health check. Reports which database configuration the running instance can
-// actually see (names only, never values). On Vercel this shows whether the
-// DATABASE_URL / POSTGRES_URL / PRISMA_DATABASE_URL env vars reached the
-// function — a common cause of "account disappears / unauthorized" bugs.
-app.get("/api/health", (req, res) => {
+// actually see (names only, never values) AND whether it can really connect.
+// On Vercel this distinguishes "env vars present" from "database reachable" —
+// env vars that are present-but-unusable are the classic cause of "accounts
+// disappear after logout": every query fails and the app silently falls back to
+// the ephemeral per-instance memory store.
+app.get("/api/health", async (req, res) => {
   const dbVars = {
     DATABASE_URL: Boolean(process.env.DATABASE_URL),
     POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
     PRISMA_DATABASE_URL: Boolean(process.env.PRISMA_DATABASE_URL),
     SQL_HOST: Boolean(process.env.SQL_HOST)
   };
-  const configured = Object.entries(dbVars).some(([, present]) => present);
+  const usable = hasUsablePgConfig();
+  let probe: { ok: boolean; error?: string | null } | null = null;
+  if (usable) {
+    try {
+      probe = await probeDatabaseConnection();
+    } catch (err: any) {
+      probe = { ok: false, error: String(err?.message || err).slice(0, 300) };
+    }
+  }
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     status: "ok",
-    database: configured ? "Cloud SQL PostgreSQL" : "In-Memory Store",
+    database: probe && probe.ok
+      ? "Cloud SQL PostgreSQL (connected)"
+      : usable
+        ? "Cloud SQL PostgreSQL (configured but NOT reachable — falling back to memory)"
+        : "In-Memory Store (no usable database configuration)",
     dbConfigDetected: dbVars,
+    urlSchemes: getDbConfigDiagnostics(),
+    dbUsable: usable,
+    dbReachable: probe ? probe.ok : null,
     instance: process.env.VERCEL ? "vercel-serverless" : "node",
     timestamp: new Date().toISOString()
   });
