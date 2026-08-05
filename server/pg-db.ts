@@ -1,4 +1,4 @@
-import { db, schema } from '../src/db/index.js';
+import { db, schema, ensureSchema, isPgConfigured } from '../src/db/index.js';
 import { eq, desc } from 'drizzle-orm';
 import {
   User,
@@ -26,10 +26,10 @@ import {
   auditLogs as memAuditLogs,
   getSettings,
   updateSettings,
-  scheduleStoreSave
+  flushStore
 } from './db.js';
 
-const isPgAvailable = () => Boolean(process.env.SQL_HOST);
+const isPgAvailable = () => isPgConfigured();
 
 // -------------------------------------------------------------
 // SEEDING FUNCTION
@@ -37,6 +37,9 @@ const isPgAvailable = () => Boolean(process.env.SQL_HOST);
 export async function seedPgDatabase() {
   if (!isPgAvailable()) return;
   try {
+    // Ensure tables exist before touching them; without this the first
+    // request would fail with "relation does not exist" on fresh databases.
+    await ensureSchema();
     const existingUsers = await db.select().from(schema.users).limit(1);
     if (existingUsers.length === 0) {
       console.log('[Cloud SQL] Seeding initial database records...');
@@ -114,7 +117,7 @@ export async function pgCreateUser(user: User): Promise<User> {
         }
       }).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as User;
       }
     } catch (err) {
@@ -125,11 +128,11 @@ export async function pgCreateUser(user: User): Promise<User> {
   const existingIdx = memUsers.findIndex((u) => u.id === user.id || u.email.toLowerCase().trim() === normalizedEmail);
   if (existingIdx >= 0) {
     memUsers[existingIdx] = { ...memUsers[existingIdx], ...userToSave };
-    scheduleStoreSave();
+    flushStore();
     return memUsers[existingIdx];
   } else {
     memUsers.push(userToSave);
-    scheduleStoreSave();
+    flushStore();
     return userToSave;
   }
 }
@@ -169,7 +172,7 @@ export async function pgUpsertCandidateProfile(profile: CandidateProfile): Promi
         }
       }).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as CandidateProfile;
       }
     } catch (err) {
@@ -177,7 +180,7 @@ export async function pgUpsertCandidateProfile(profile: CandidateProfile): Promi
     }
   }
   memProfiles[profile.user_id] = profile;
-  scheduleStoreSave();
+  flushStore();
   return profile;
 }
 
@@ -224,7 +227,7 @@ export async function pgCreateCompany(company: Company): Promise<Company> {
     try {
       const res = await db.insert(schema.companies).values(company).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Company;
       }
     } catch (err) {
@@ -232,7 +235,7 @@ export async function pgCreateCompany(company: Company): Promise<Company> {
     }
   }
   memCompanies.push(company);
-  scheduleStoreSave();
+  flushStore();
   return company;
 }
 
@@ -245,7 +248,7 @@ export async function pgUpdateCompanyStatus(companyId: string, status: 'active' 
         await db.update(schema.jobs).set({ company_status: status }).where(eq(schema.jobs.id, job.id));
       }
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Company;
       }
     } catch (err) {
@@ -257,7 +260,7 @@ export async function pgUpdateCompanyStatus(companyId: string, status: 'active' 
     comp.status = status;
     memJobs.filter((j) => j.company_id === companyId).forEach((j) => { j.company_status = status; });
   }
-  scheduleStoreSave();
+  flushStore();
   return comp || null;
 }
 
@@ -359,7 +362,7 @@ export async function pgCreateJob(job: Job): Promise<Job> {
     try {
       const res = await db.insert(schema.jobs).values(job).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Job;
       }
     } catch (err) {
@@ -367,7 +370,7 @@ export async function pgCreateJob(job: Job): Promise<Job> {
     }
   }
   memJobs.unshift(job);
-  scheduleStoreSave();
+  flushStore();
   return job;
 }
 
@@ -376,7 +379,7 @@ export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise
     try {
       const res = await db.update(schema.jobs).set(jobData).where(eq(schema.jobs.id, jobId)).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Job;
       }
     } catch (err) {
@@ -386,7 +389,7 @@ export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise
   const idx = memJobs.findIndex((j) => j.id === jobId);
   if (idx >= 0) {
     memJobs[idx] = { ...memJobs[idx], ...jobData };
-    scheduleStoreSave();
+    flushStore();
     return memJobs[idx];
   }
   return null;
@@ -397,7 +400,7 @@ export async function pgDeleteJob(jobId: string): Promise<boolean> {
     try {
       const res = await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId)).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return true;
       }
     } catch (err) {
@@ -407,7 +410,7 @@ export async function pgDeleteJob(jobId: string): Promise<boolean> {
   const idx = memJobs.findIndex((j) => j.id === jobId);
   if (idx >= 0) {
     memJobs.splice(idx, 1);
-    scheduleStoreSave();
+    flushStore();
     return true;
   }
   return false;
@@ -465,7 +468,7 @@ export async function pgCreateApplication(appData: Application): Promise<Applica
         await db.update(schema.jobs).set({ applicant_count: (job.applicant_count || 0) + 1 }).where(eq(schema.jobs.id, job.id));
       }
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Application;
       }
     } catch (err) {
@@ -477,7 +480,7 @@ export async function pgCreateApplication(appData: Application): Promise<Applica
   if (job) {
     job.applicant_count = (job.applicant_count || 0) + 1;
   }
-  scheduleStoreSave();
+  flushStore();
   return appData;
 }
 
@@ -497,7 +500,7 @@ export async function pgUpdateApplicationStatus(
           .where(eq(schema.applications.id, appId))
           .returning();
         if (res[0]) {
-          scheduleStoreSave();
+          flushStore();
           return res[0] as Application;
         }
       }
@@ -509,7 +512,7 @@ export async function pgUpdateApplicationStatus(
   if (app) {
     app.status = targetStatus;
     app.status_history = [...(app.status_history || []), historyEntry];
-    scheduleStoreSave();
+    flushStore();
     return app;
   }
   return null;
@@ -524,7 +527,7 @@ export async function pgUpdateApplicationNotes(appId: string, internalNotes: str
         .where(eq(schema.applications.id, appId))
         .returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as Application;
       }
     } catch (err) {
@@ -534,7 +537,7 @@ export async function pgUpdateApplicationNotes(appId: string, internalNotes: str
   const app = memApps.find((a) => a.id === appId);
   if (app) {
     app.internal_notes = internalNotes;
-    scheduleStoreSave();
+    flushStore();
     return app;
   }
   return null;
@@ -559,7 +562,7 @@ export async function pgCreateFlagReport(report: FlagReport): Promise<FlagReport
     try {
       const res = await db.insert(schema.flagReports).values(report).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as FlagReport;
       }
     } catch (err) {
@@ -567,7 +570,7 @@ export async function pgCreateFlagReport(report: FlagReport): Promise<FlagReport
     }
   }
   memFlags.unshift(report);
-  scheduleStoreSave();
+  flushStore();
   return report;
 }
 
@@ -576,7 +579,7 @@ export async function pgResolveFlagReport(id: string): Promise<FlagReport | null
     try {
       const res = await db.update(schema.flagReports).set({ status: 'resolved' }).where(eq(schema.flagReports.id, id)).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as FlagReport;
       }
     } catch (err) {
@@ -585,7 +588,7 @@ export async function pgResolveFlagReport(id: string): Promise<FlagReport | null
   }
   const rep = memFlags.find((r) => r.id === id);
   if (rep) rep.status = 'resolved';
-  scheduleStoreSave();
+  flushStore();
   return rep || null;
 }
 
@@ -609,7 +612,7 @@ export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<Resum
     try {
       const res = await db.insert(schema.resumeDocuments).values(doc).returning();
       if (res[0]) {
-        scheduleStoreSave();
+        flushStore();
         return res[0] as ResumeDocument;
       }
     } catch (err) {
@@ -617,7 +620,7 @@ export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<Resum
     }
   }
   memResumes[doc.id] = doc;
-  scheduleStoreSave();
+  flushStore();
   return doc;
 }
 
@@ -642,7 +645,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
       await db.delete(schema.users).where(eq(schema.users.id, userId));
       for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
       for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
-      scheduleStoreSave();
+      flushStore();
       return true;
     } catch (err) {
       console.warn('Postgres delete user failed, using memory store:', err);
@@ -652,7 +655,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
   if (idx >= 0) memUsers.splice(idx, 1);
   for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
   for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
-  scheduleStoreSave();
+  flushStore();
   return true;
 }
 
@@ -661,7 +664,7 @@ export async function pgDeleteUser(userId: string): Promise<boolean> {
 // -------------------------------------------------------------
 export async function pgCreateNotification(n: PlatformNotification): Promise<PlatformNotification> {
   memNotifications.unshift(n);
-  scheduleStoreSave();
+  flushStore();
   return n;
 }
 
@@ -674,7 +677,7 @@ export async function pgGetNotifications(): Promise<PlatformNotification[]> {
 // -------------------------------------------------------------
 export async function pgCreateAuditLog(entry: AuditLogEntry): Promise<AuditLogEntry> {
   memAuditLogs.unshift(entry);
-  scheduleStoreSave();
+  flushStore();
   return entry;
 }
 
@@ -691,7 +694,7 @@ export async function pgGetSettings(): Promise<PlatformSettings> {
 
 export async function pgUpdateSettings(patch: Partial<PlatformSettings>): Promise<PlatformSettings> {
   const updated = updateSettings(patch);
-  scheduleStoreSave();
+  flushStore();
   return updated;
 }
 

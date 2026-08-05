@@ -1,5 +1,6 @@
-import app from "../server/app.js";
+import app, { dbReady } from "../server/app.js";
 
-export default function handler(req: any, res: any) {
+export default async function handler(req: any, res: any) {
+  await dbReady;
   return app(req, res);
 }

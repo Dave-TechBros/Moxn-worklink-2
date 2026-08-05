@@ -29,17 +29,80 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const SESSION_KEY = 'moxn_active_user_id';
+const SNAPSHOT_KEY = 'moxn_auth_snapshot';
+
+interface AuthSnapshot {
+  user: User | null;
+  profile: CandidateProfile | null;
+  company: Company | null;
+  availableUsers: User[];
+}
+
+const readSnapshot = (): AuthSnapshot | null => {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && ('user' in parsed)) {
+      return {
+        user: parsed.user || null,
+        profile: parsed.profile || null,
+        company: parsed.company || null,
+        availableUsers: Array.isArray(parsed.availableUsers) ? parsed.availableUsers : []
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const writeSnapshot = (snapshot: AuthSnapshot) => {
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Storage unavailable (private mode, quota) — non-fatal.
+  }
+};
+
+const clearSnapshot = () => {
+  try {
+    localStorage.removeItem(SNAPSHOT_KEY);
+  } catch {
+    // ignore
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentProfile, setCurrentProfile] = useState<CandidateProfile | null>(null);
-  const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
-  const [availableUsers, setAvailableUsers] = useState<User[]>([]);
-  
-  // Default to null so initial page is Landing Page
   const [activeUserId, setActiveUserId] = useState<string | null>(() => {
-    return localStorage.getItem('moxn_active_user_id') || null;
+    return localStorage.getItem(SESSION_KEY) || null;
   });
-  const [loading, setLoading] = useState<boolean>(true);
+
+  // Hydrate instantly from the last known snapshot so a returning user never
+  // sees a flash of the landing page while /api/auth/me resolves.
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const snap = readSnapshot();
+    return snap ? snap.user : null;
+  });
+  const [currentProfile, setCurrentProfile] = useState<CandidateProfile | null>(() => {
+    const snap = readSnapshot();
+    return snap ? snap.profile : null;
+  });
+  const [currentCompany, setCurrentCompany] = useState<Company | null>(() => {
+    const snap = readSnapshot();
+    return snap ? snap.company : null;
+  });
+  const [availableUsers, setAvailableUsers] = useState<User[]>(() => {
+    const snap = readSnapshot();
+    return snap ? snap.availableUsers : [];
+  });
+
+  // Only gate rendering for users who have a stored session (they need to be
+  // re-validated). Logged-out visitors should see the landing page instantly.
+  const [loading, setLoading] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem(SESSION_KEY));
+  });
 
   const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
     const headers = new Headers(options.headers || {});
@@ -62,6 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(null);
         setCurrentProfile(null);
         setCurrentCompany(null);
+        clearSnapshot();
         // Fetch public list of available users for demo switcher
         const res = await fetch('/api/auth/me');
         if (res.ok) {
@@ -81,11 +145,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (data.availableUsers) {
           setAvailableUsers(data.availableUsers);
         }
-        if (!data.user) {
-          // The stored user id no longer resolves to a real account.
-          // Clear the stale session so we don't bounce between accounts.
-          localStorage.removeItem('moxn_active_user_id');
+        if (data.user) {
+          writeSnapshot({
+            user: data.user,
+            profile: data.profile || null,
+            company: data.company || null,
+            availableUsers: data.availableUsers || availableUsers
+          });
+        } else {
+          // The server explicitly confirmed this user id no longer resolves
+          // to an account. Only then is the session truly gone.
+          localStorage.removeItem(SESSION_KEY);
+          setActiveUserId(null);
+          setCurrentUser(null);
+          setCurrentProfile(null);
+          setCurrentCompany(null);
+          clearSnapshot();
         }
+      } else {
+        // Non-OK (5xx, gateway 413, HTML error page, etc.). This is a
+        // transient server problem, NOT a missing account — keep the cached
+        // session so the user is not logged out by an infrastructure hiccup.
+        console.warn(`[Auth] refresh returned ${res.status}; keeping cached session.`);
+        setLoading(false);
+        return;
       }
     } catch (err) {
       console.error('Failed to fetch user session:', err);
@@ -96,11 +179,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (activeUserId) {
-      localStorage.setItem('moxn_active_user_id', activeUserId);
+      localStorage.setItem(SESSION_KEY, activeUserId);
     } else {
-      localStorage.removeItem('moxn_active_user_id');
+      localStorage.removeItem(SESSION_KEY);
     }
     refreshAuthData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUserId]);
 
   const switchUser = async (userId: string) => {
@@ -124,6 +208,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const persistAuth = (user: User, profile: CandidateProfile | null, company: Company | null, users: User[]) => {
+    setCurrentUser(user);
+    setCurrentProfile(profile);
+    setCurrentCompany(company);
+    // Merge: login/register responses do not echo availableUsers, so keep the
+    // existing list rather than wiping the demo user switcher.
+    const mergedUsers = users.length ? users : availableUsers;
+    if (mergedUsers.length) setAvailableUsers(mergedUsers);
+    writeSnapshot({ user, profile, company, availableUsers: mergedUsers });
+  };
+
   const loginWithEmail = async (email: string, password?: string) => {
     setLoading(true);
     try {
@@ -139,9 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setActiveUserId(data.user.id);
-      setCurrentUser(data.user);
-      setCurrentProfile(data.profile);
-      setCurrentCompany(data.company);
+      persistAuth(data.user, data.profile || null, data.company || null, data.availableUsers || []);
       setLoading(false);
       return { success: true };
     } catch (err: any) {
@@ -172,9 +265,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setActiveUserId(resData.user.id);
-      setCurrentUser(resData.user);
-      setCurrentProfile(resData.profile);
-      setCurrentCompany(resData.company);
+      persistAuth(resData.user, resData.profile || null, resData.company || null, resData.availableUsers || []);
       setLoading(false);
       return { success: true };
     } catch (err: any) {
@@ -188,7 +279,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(null);
     setCurrentProfile(null);
     setCurrentCompany(null);
-    localStorage.removeItem('moxn_active_user_id');
+    localStorage.removeItem(SESSION_KEY);
+    clearSnapshot();
   };
 
   const applyAuthData = (data: {
@@ -199,6 +291,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (data.user) setCurrentUser(data.user);
     if (data.profile !== undefined) setCurrentProfile(data.profile);
     if (data.company !== undefined) setCurrentCompany(data.company);
+    const next = {
+      user: data.user || currentUser,
+      profile: data.profile !== undefined ? data.profile : currentProfile,
+      company: data.company !== undefined ? data.company : currentCompany,
+      availableUsers
+    };
+    writeSnapshot(next);
   };
 
   return (

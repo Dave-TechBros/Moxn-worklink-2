@@ -36,16 +36,34 @@ import {
   pgCreateAuditLog,
   pgGetAuditLogs,
   pgGetSettings,
-  pgUpdateSettings
+  pgUpdateSettings,
+  seedPgDatabase
 } from "./pg-db.js";
 import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
 
 export const app = express();
 
+// Seed the persistent database (if configured) before the first request is
+// served. On serverless deploys this runs lazily per cold start; awaiting it
+// prevents the "relation does not exist" race that otherwise occurred when a
+// request landed before the tables were created.
+export const dbReady: Promise<void> = (async () => {
+  try {
+    await seedPgDatabase();
+  } catch (err) {
+    console.error("Failed to initialize database:", err);
+  }
+})();
+
 // JSON Body Parser with enlarged limit for base64 resume previews
 app.use(express.json({ limit: "15mb" }));
 
-// Normalize request path so routes match both with and without /api prefix (critical for Vercel Serverless Function rewrites)
+// Normalize request path so routes match both with and without /api prefix.
+// This ONLY applies to genuine Vercel serverless rewrites (vercel.json routes
+// /api/(.*) to /api/index?path=$1). Plain SPA client routes (/, /jobs,
+// /profile, ...) must pass through untouched so the static middleware in
+// server.ts can serve the app shell instead of being rewritten into a bogus
+// /api/* 404.
 app.use((req, res, next) => {
   let url = req.url || '/';
 
@@ -63,6 +81,10 @@ app.use((req, res, next) => {
       url = forwardedUri;
     } else if (req.originalUrl && req.originalUrl.startsWith('/api') && !req.originalUrl.startsWith('/api/index')) {
       url = req.originalUrl;
+    } else {
+      // Not a Vercel rewrite and not an API path: this is a client-side route
+      // that the SPA static middleware should handle. Do not rewrite.
+      return next();
     }
   } catch {
     // Fallback if URL parsing fails
@@ -161,7 +183,13 @@ const sanitizeString = (value: unknown, maxLen = 500): string => {
 
 // Health check
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", database: process.env.SQL_HOST ? "Cloud SQL PostgreSQL" : "In-Memory Store", timestamp: new Date().toISOString() });
+  res.json({
+    status: "ok",
+    database: process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PRISMA_DATABASE_URL || process.env.SQL_HOST
+      ? "Cloud SQL PostgreSQL"
+      : "In-Memory Store",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Auth & Session API
@@ -683,6 +711,13 @@ app.get("/api/resumes/:id", async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: "Resume document not found." });
     }
+
+    // Ownership guard: candidates may only fetch their own CV. Employers and
+    // admins may fetch any CV (they legitimately review applicants), but a
+    // candidate must never be able to pull another candidate's resume.
+    if (user.role === "candidate" && doc.user_id !== user.id) {
+      return res.status(403).json({ error: "You do not have access to this resume document." });
+    }
     res.json(doc);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch resume document." });
@@ -707,7 +742,7 @@ app.post("/api/candidate/applications", async (req, res) => {
     const user = await getAuthUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    const { job_id, resume_file_id, cover_note } = req.body;
+    const { job_id, cover_note } = req.body;
 
     if (!job_id) {
       return res.status(400).json({ error: "Job ID is required." });
@@ -727,7 +762,9 @@ app.post("/api/candidate/applications", async (req, res) => {
     }
 
     const profile = await pgGetCandidateProfile(user.id);
-    const resumeId = resume_file_id || profile?.resume_file_id || null;
+    // Never trust a client-supplied resume id from another account: always
+    // resolve the candidate's own resume and use that.
+    const resumeId = profile?.resume_file_id || null;
     const resumeName = profile?.resume_file_name || null;
 
     const now = new Date().toISOString();
@@ -1391,6 +1428,22 @@ app.get("/api/admin/audit-logs", async (req, res) => {
 // -----------------------------------------------------------------------------
 // ADMIN: SETTINGS
 // -----------------------------------------------------------------------------
+// Public (no auth) subset of settings so clients can display platform rules
+// such as the maximum resume size without requiring a login.
+app.get("/api/public/settings", async (req, res) => {
+  try {
+    const settings = await pgGetSettings();
+    res.json({
+      platform_name: settings.platform_name,
+      registration_enabled: settings.registration_enabled,
+      maintenance_mode: settings.maintenance_mode,
+      max_resume_size_mb: settings.max_resume_size_mb
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch settings." });
+  }
+});
+
 app.get("/api/admin/settings", async (req, res) => {
   try {
     const auth = await requireAdminLevel(req, 'moderator');
@@ -1614,8 +1667,14 @@ app.get("/api/admin/me", async (req, res) => {
   res.json({ user });
 });
 
-// Fallback JSON 404 handler for API routes
-app.use((req, res) => {
+// Fallback JSON 404 handler for API routes. Non-API GET requests (client-side
+// routes like /jobs or /profile) are passed through so the SPA static
+// middleware registered later (in server.ts) can serve the app shell instead
+// of returning a JSON 404.
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+    return next();
+  }
   res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl || req.url}` });
 });
 

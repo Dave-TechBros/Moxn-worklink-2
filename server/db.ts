@@ -21,6 +21,32 @@ const STORE_PATH = IS_SERVERLESS
   ? path.join('/tmp', 'db_store.json')
   : path.join(process.cwd(), '.data', 'db_store.json');
 
+// On serverless platforms the file store lives in ephemeral /tmp and is wiped
+// whenever the function instance is recycled (idle scale-down, redeploy, or
+// traffic spread across instances). Silently persisting there has caused data
+// loss for registered users, profile edits, and uploaded resumes. Make the
+// situation explicit so it is never mistaken for a working database.
+const hasDatabaseConfig =
+  Boolean(process.env.SQL_HOST) ||
+  Boolean(process.env.DATABASE_URL) ||
+  Boolean(process.env.POSTGRES_URL) ||
+  Boolean(process.env.PRISMA_DATABASE_URL);
+
+if (IS_SERVERLESS && !hasDatabaseConfig) {
+  console.error(
+    '============================================================\n' +
+      'WARNING: Running on a serverless platform WITHOUT a database.\n' +
+      'Data (users, profiles, CVs, applications) is written to the\n' +
+      'ephemeral /tmp store and WILL BE LOST when the function instance\n' +
+      'is recycled.\n' +
+      'Set a database connection string env var such as DATABASE_URL,\n' +
+      'POSTGRES_URL, or PRISMA_DATABASE_URL (or the SQL_HOST, SQL_USER,\n' +
+      'SQL_PASSWORD, SQL_DB_NAME, SQL_PORT, SQL_SSL split variables) so\n' +
+      'data persists in PostgreSQL.\n' +
+      '============================================================'
+  );
+}
+
 // Pre-seeded Users
 export const users: User[] = [
   {
@@ -531,6 +557,15 @@ export const resumeDocuments: Record<string, ResumeDocument> = {
     content_type: 'application/pdf',
     data_url: 'data:application/pdf;base64,JVBERi0xLjQKJ...[PDF Document Preview Content: Marcus Vance - Lead Product Designer]',
     uploaded_at: '2026-07-20T10:00:00.000Z'
+  },
+  'res-cand-3': {
+    id: 'res-cand-3',
+    user_id: 'user-cand-3',
+    filename: 'Elena_Rodriguez_DevOps_Resume.pdf',
+    file_size: 210000,
+    content_type: 'application/pdf',
+    data_url: 'data:application/pdf;base64,JVBERi0xLjQKJ...[PDF Document Preview Content: Elena Rodriguez - DevOps Engineer]',
+    uploaded_at: '2026-07-18T09:30:00.000Z'
   }
 };
 
@@ -546,7 +581,7 @@ export const defaultSettings: PlatformSettings = {
   maintenance_mode: false,
   email_notifications_enabled: true,
   contact_email: 'support@moxnworklink.com',
-  max_resume_size_mb: 10,
+  max_resume_size_mb: IS_SERVERLESS ? 3 : 10,
   announcement: '',
   updated_at: new Date().toISOString()
 };
@@ -621,7 +656,12 @@ export function saveStore(): void {
       auditLogs,
       settings
     };
-    fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    const payload = JSON.stringify(data, null, 2);
+    // Atomic write: write to a temp file then rename so a crash mid-write can
+    // never corrupt or truncate the persistent store.
+    const tmpPath = `${STORE_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, payload, 'utf-8');
+    fs.renameSync(tmpPath, STORE_PATH);
   } catch (err) {
     console.error('Failed to save store to disk:', err);
   }

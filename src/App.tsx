@@ -18,8 +18,17 @@ import { ReportModal } from './components/ReportModal';
 import { Job } from './types';
 
 function MainAppContent() {
-  const { currentUser } = useAuth();
+  const { currentUser, loading } = useAuth();
   const { showToast } = useToast();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900 font-sans antialiased">
+        <div className="animate-spin w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full mb-4" />
+        <p className="text-sm font-semibold text-slate-500">Loading your session…</p>
+      </div>
+    );
+  }
 
   // Active view tab state (defaults to 'landing' if no user)
   const [activeTab, setActiveTab] = useState<string>('landing');

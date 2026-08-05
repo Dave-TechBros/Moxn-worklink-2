@@ -37,15 +37,21 @@ export const CandidateProfileManager: React.FC = () => {
   const [newLinkLabel, setNewLinkLabel] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
   const resumeInputRef = useRef<HTMLInputElement>(null);
+  // Tracks whether the user has unsaved edits. Background auth refreshes must
+  // not overwrite a profile the user is currently typing in (this previously
+  // caused edits to revert and forced repeated slow saves).
+  const dirtyRef = useRef(false);
+  // Effective resume size cap from server settings (lower on serverless where
+  // the platform gateway rejects large request bodies).
+  const [maxResumeSizeMb, setMaxResumeSizeMb] = useState(10);
+
+  const markDirty = () => {
+    dirtyRef.current = true;
+  };
 
   useEffect(() => {
-    if (currentUser) {
-      setAvatar(currentUser.avatar || undefined);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (currentProfile) {
+    // Only re-sync the form from the server when there are no unsaved edits.
+    if (!dirtyRef.current && currentProfile) {
       setHeadline(currentProfile.headline || '');
       setLocation(currentProfile.location || '');
       setBio(currentProfile.bio || '');
@@ -54,6 +60,26 @@ export const CandidateProfileManager: React.FC = () => {
       setResumeFileName(currentProfile.resume_file_name || '');
     }
   }, [currentProfile]);
+
+  useEffect(() => {
+    // The server may cap resume size differently by platform (3MB on
+    // serverless vs 10MB on a full server). Fetch the effective limit so the
+    // client validates with the same number the backend enforces.
+    let cancelled = false;
+    fetch('/api/public/settings')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.max_resume_size_mb === 'number') {
+          setMaxResumeSizeMb(data.max_resume_size_mb);
+        }
+      })
+      .catch(() => {
+        // Keep the default cap if the settings endpoint is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAvatarUpload = async (file: File) => {
     if (!file) return;
@@ -118,17 +144,20 @@ export const CandidateProfileManager: React.FC = () => {
 
   const handleAddSkill = () => {
     if (newSkill.trim() && !skills.includes(newSkill.trim())) {
+      markDirty();
       setSkills([...skills, newSkill.trim()]);
       setNewSkill('');
     }
   };
 
   const handleRemoveSkill = (s: string) => {
+    markDirty();
     setSkills(skills.filter((sk) => sk !== s));
   };
 
   const handleAddLink = () => {
     if (newLinkLabel.trim() && newLinkUrl.trim()) {
+      markDirty();
       setLinks([...links, { label: newLinkLabel.trim(), url: newLinkUrl.trim() }]);
       setNewLinkLabel('');
       setNewLinkUrl('');
@@ -136,6 +165,7 @@ export const CandidateProfileManager: React.FC = () => {
   };
 
   const handleRemoveLink = (idx: number) => {
+    markDirty();
     setLinks(links.filter((_, i) => i !== idx));
   };
 
@@ -147,8 +177,8 @@ export const CandidateProfileManager: React.FC = () => {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('Upload Error', 'File size exceeds 10MB limit. Please upload a smaller PDF.', 'error');
+    if (file.size > maxResumeSizeMb * 1024 * 1024) {
+      showToast('Upload Error', `File size exceeds the ${maxResumeSizeMb}MB limit. Please upload a smaller PDF.`, 'error');
       return;
     }
 
@@ -156,36 +186,49 @@ export const CandidateProfileManager: React.FC = () => {
       const reader = new FileReader();
       reader.onload = async () => {
         const dataUrl = reader.result as string;
-        const res = await authFetch('/api/candidate/resume', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: file.name,
-            fileSize: file.size,
-            dataUrl
-          })
-        });
+        try {
+          const res = await authFetch('/api/candidate/resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: file.name,
+              fileSize: file.size,
+              dataUrl
+            })
+          });
 
-        if (!res.ok) {
-          let message = 'Failed to upload resume document';
-          try {
-            const errData = await res.json();
-            if (errData.error) message = errData.error;
-          } catch {
-            // ignore parse errors, keep default message
+          if (!res.ok) {
+            if (res.status === 401) {
+              throw new Error('Your session expired. Please sign in again and retry the upload.');
+            }
+            if (res.status === 413) {
+              throw new Error(
+                `The server rejected the request because the PDF is too large (limit ${maxResumeSizeMb}MB). ` +
+                  'Please compress the PDF and try again.'
+              );
+            }
+            let message = 'Failed to upload resume document';
+            try {
+              const errData = await res.json();
+              if (errData.error) message = errData.error;
+            } catch {
+              // ignore parse errors, keep default message
+            }
+            throw new Error(message);
           }
-          throw new Error(message);
-        }
 
-        const doc = await res.json();
-        setResumeFileName(doc.filename);
-        await refreshAuthData();
-        if (resumeInputRef.current) resumeInputRef.current.value = '';
-        showToast('Resume Updated', `${file.name} saved to your profile.`, 'success');
+          const doc = await res.json();
+          setResumeFileName(doc.filename);
+          if (resumeInputRef.current) resumeInputRef.current.value = '';
+          showToast('Resume Updated', `${file.name} saved to your profile.`, 'success');
+        } catch (err: any) {
+          if (resumeInputRef.current) resumeInputRef.current.value = '';
+          showToast('Upload Error', err.message || 'Failed to process PDF upload', 'error');
+        }
       };
       reader.readAsDataURL(file);
     } catch (err: any) {
-      showToast('Error', err.message || 'Failed to process PDF upload', 'error');
+      showToast('Upload Error', err.message || 'Failed to process PDF upload', 'error');
     }
   };
 
@@ -204,10 +247,26 @@ export const CandidateProfileManager: React.FC = () => {
         })
       });
 
-      if (!res.ok) throw new Error('Failed to save profile');
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Your session expired. Please sign in again and retry.');
+        }
+        let message = 'Failed to save profile';
+        try {
+          const errData = await res.json();
+          if (errData.error) message = errData.error;
+        } catch {
+          // keep default message
+        }
+        throw new Error(message);
+      }
 
       const updatedProfile = await res.json();
       applyAuthData({ profile: updatedProfile });
+      if (updatedProfile.resume_file_name !== undefined) {
+        setResumeFileName(updatedProfile.resume_file_name || '');
+      }
+      dirtyRef.current = false;
       showToast('Profile Saved', 'Your candidate profile has been updated.', 'success');
     } catch (err: any) {
       showToast('Error', err.message, 'error');
@@ -300,7 +359,10 @@ export const CandidateProfileManager: React.FC = () => {
               <input
                 type="text"
                 value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setHeadline(e.target.value);
+                }}
                 placeholder="e.g., Senior Staff Frontend Engineer | React & TypeScript"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
               />
@@ -313,7 +375,10 @@ export const CandidateProfileManager: React.FC = () => {
               <input
                 type="text"
                 value={location}
-                onChange={(e) => setLocation(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setLocation(e.target.value);
+                }}
                 placeholder="e.g., San Francisco, CA (Hybrid / Remote)"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
               />
@@ -327,7 +392,10 @@ export const CandidateProfileManager: React.FC = () => {
           <textarea
             rows={4}
             value={bio}
-            onChange={(e) => setBio(e.target.value)}
+            onChange={(e) => {
+              markDirty();
+              setBio(e.target.value);
+            }}
             placeholder="Write a concise executive summary of your engineering background, domain specialization, and impact..."
             className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 leading-relaxed text-slate-800"
           ></textarea>
