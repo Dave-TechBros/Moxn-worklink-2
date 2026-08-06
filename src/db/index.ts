@@ -114,7 +114,10 @@ export const createPool = () => {
           connectionString: parsed.toString(),
           ssl,
           max: POOL_MAX,
-          connectionTimeoutMillis: 8000,
+          // Short connect timeout so serverless cold starts with a slow Cloud
+          // SQL connection fail fast and fall back to the in-memory store
+          // instead of hanging the first request near the platform timeout.
+          connectionTimeoutMillis: 4000,
           idleTimeoutMillis: 30000,
         });
       } else if (process.env.SQL_HOST) {
@@ -126,7 +129,8 @@ export const createPool = () => {
           port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : 5432,
           ssl: process.env.SQL_SSL === 'false' ? false : { rejectUnauthorized: false },
           max: POOL_MAX,
-          connectionTimeoutMillis: 8000,
+          // Short connect timeout; see comment on the URL-based pool above.
+          connectionTimeoutMillis: 4000,
           idleTimeoutMillis: 30000,
         });
       } else {
