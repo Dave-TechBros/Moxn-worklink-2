@@ -114,7 +114,8 @@ export const createPool = () => {
           connectionString: parsed.toString(),
           ssl,
           max: POOL_MAX,
-          connectionTimeoutMillis: 15000,
+          connectionTimeoutMillis: 8000,
+          idleTimeoutMillis: 30000,
         });
       } else if (process.env.SQL_HOST) {
         global._postgresPool = new PoolClass({
@@ -125,7 +126,8 @@ export const createPool = () => {
           port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : 5432,
           ssl: process.env.SQL_SSL === 'false' ? false : { rejectUnauthorized: false },
           max: POOL_MAX,
-          connectionTimeoutMillis: 15000,
+          connectionTimeoutMillis: 8000,
+          idleTimeoutMillis: 30000,
         });
       } else {
         // Env vars are present but none is usable (e.g. only a prisma:// URL

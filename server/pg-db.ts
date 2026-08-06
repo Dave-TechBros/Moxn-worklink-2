@@ -31,6 +31,26 @@ import {
 
 const isPgAvailable = () => isPgConfigured();
 
+// Managed/serverless Postgres (Prisma Postgres, Neon, Supabase) can
+// transiently refuse a connection during cold starts or when many Vercel
+// instances churn connections at once. Auth-critical queries retry once with a
+// short backoff before failing loudly — an account must never look "lost"
+// because of a one-off connection refusal.
+const withRetry = async <T>(fn: () => Promise<T>, retries = 1): Promise<T> => {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+};
+
 // True connection check used by /api/health. Env vars can be present yet
 // unusable (wrong scheme, bad credentials, unreachable host), and in that case
 // the pg-* helpers silently fall back to the ephemeral per-instance memory
@@ -125,9 +145,10 @@ export async function pgGetUserById(id: string): Promise<User | null> {
     // throwing here lets auth routes surface a retryable error instead of
     // telling the user a real account vanished. The memory store is only used
     // when no database is configured at all (demo/local mode).
-    const res = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
-    if (res[0]) return res[0] as User;
-    return null;
+    return withRetry(async () => {
+      const res = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+      return (res[0] as User) || null;
+    });
   }
   return memUsers.find((u) => u.id === id) || null;
 }
@@ -135,9 +156,10 @@ export async function pgGetUserById(id: string): Promise<User | null> {
 export async function pgGetUserByEmail(email: string): Promise<User | null> {
   const normalized = email.toLowerCase().trim();
   if (isPgAvailable()) {
-    const res = await db.select().from(schema.users).where(eq(schema.users.email, normalized)).limit(1);
-    if (res[0]) return res[0] as User;
-    return null;
+    return withRetry(async () => {
+      const res = await db.select().from(schema.users).where(eq(schema.users.email, normalized)).limit(1);
+      return (res[0] as User) || null;
+    });
   }
   return memUsers.find((u) => u.email.toLowerCase().trim() === normalized) || null;
 }
@@ -149,24 +171,27 @@ export async function pgCreateUser(user: User): Promise<User> {
   if (isPgAvailable()) {
     // DB mode: never silently write the account only to the ephemeral
     // per-instance memory store — that is exactly how accounts "disappear"
-    // after logout. If the insert fails, throw so registration surfaces an
-    // error instead of reporting a success that cannot be logged into later.
-    const res = await db.insert(schema.users).values(userToSave).onConflictDoUpdate({
-      target: schema.users.id,
-      set: {
-        email: normalizedEmail,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar || null,
-        company_id: user.company_id || null,
-        password: user.password ?? null
+    // after logout. Retry is safe because onConflictDoUpdate makes the insert
+    // idempotent; if it still fails, throw so registration surfaces an error
+    // instead of reporting a success that cannot be logged into later.
+    return withRetry(async () => {
+      const res = await db.insert(schema.users).values(userToSave).onConflictDoUpdate({
+        target: schema.users.id,
+        set: {
+          email: normalizedEmail,
+          name: user.name,
+          role: user.role,
+          avatar: user.avatar || null,
+          company_id: user.company_id || null,
+          password: user.password ?? null
+        }
+      }).returning();
+      if (!res[0]) {
+        throw new Error('User insert returned no row.');
       }
-    }).returning();
-    if (!res[0]) {
-      throw new Error('User insert returned no row.');
-    }
-    flushStore();
-    return res[0] as User;
+      flushStore();
+      return res[0] as User;
+    });
   }
 
   const existingIdx = memUsers.findIndex((u) => u.id === user.id || u.email.toLowerCase().trim() === normalizedEmail);
@@ -186,19 +211,17 @@ export async function pgCreateUser(user: User): Promise<User> {
 // -------------------------------------------------------------
 export async function pgGetCandidateProfile(userId: string): Promise<CandidateProfile | null> {
   if (isPgAvailable()) {
-    try {
+    return withRetry(async () => {
       const res = await db.select().from(schema.candidateProfiles).where(eq(schema.candidateProfiles.user_id, userId)).limit(1);
-      if (res[0]) return res[0] as CandidateProfile;
-    } catch (err) {
-      console.warn('Postgres profile query failed, using memory store:', err);
-    }
+      return (res[0] as CandidateProfile) || null;
+    });
   }
   return memProfiles[userId] || null;
 }
 
 export async function pgUpsertCandidateProfile(profile: CandidateProfile): Promise<CandidateProfile> {
   if (isPgAvailable()) {
-    try {
+    return withRetry(async () => {
       const res = await db.insert(schema.candidateProfiles).values(profile).onConflictDoUpdate({
         target: schema.candidateProfiles.user_id,
         set: {
@@ -215,13 +238,12 @@ export async function pgUpsertCandidateProfile(profile: CandidateProfile): Promi
           updated_at: profile.updated_at
         }
       }).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as CandidateProfile;
+      if (!res[0]) {
+        throw new Error('Profile upsert returned no row.');
       }
-    } catch (err) {
-      console.warn('Postgres profile upsert failed, using memory store:', err);
-    }
+      flushStore();
+      return res[0] as CandidateProfile;
+    });
   }
   memProfiles[profile.user_id] = profile;
   flushStore();
