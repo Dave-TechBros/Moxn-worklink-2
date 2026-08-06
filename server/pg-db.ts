@@ -93,6 +93,27 @@ export async function probeDatabaseConnection(force = false): Promise<{ ok: bool
 // -------------------------------------------------------------
 // SEEDING FUNCTION
 // -------------------------------------------------------------
+// Insert any seed records that are missing from the database. The previous
+// one-time seed only ran when the users table was empty, so a database that was
+// partially provisioned (or created before its tables were fully shaped) stayed
+// permanently short of the seeded companies/jobs. ON CONFLICT DO NOTHING makes
+// this safe to run on every cold start, and per-record error handling means one
+// bad record never blocks the rest.
+const seedIfMissing = async <T>(table: any, records: T[], label: string): Promise<void> => {
+  let ensured = 0;
+  for (const record of records) {
+    try {
+      await db.insert(table).values(record).onConflictDoNothing();
+      ensured++;
+    } catch (err) {
+      console.warn(`[Cloud SQL] Seeding "${label}" skipped a record:`, err);
+    }
+  }
+  if (ensured > 0) {
+    console.log(`[Cloud SQL] Seeding "${label}" ensured ${ensured} records.`);
+  }
+};
+
 export async function seedPgDatabase() {
   if (!isPgAvailable()) return;
   try {
@@ -105,32 +126,25 @@ export async function seedPgDatabase() {
     await db.update(schema.users)
       .set({ admin_level: 'super_admin' })
       .where(and(eq(schema.users.role, 'admin'), isNull(schema.users.admin_level)));
+
+    // Users seed only on an empty table so that admin-deleted accounts are not
+    // resurrected on every cold start.
     const existingUsers = await db.select().from(schema.users).limit(1);
     if (existingUsers.length === 0) {
-      console.log('[Cloud SQL] Seeding initial database records...');
-      for (const u of memUsers) {
-        await db.insert(schema.users).values(u).onConflictDoNothing();
-      }
-      for (const p of Object.values(memProfiles)) {
-        await db.insert(schema.candidateProfiles).values(p).onConflictDoNothing();
-      }
-      for (const c of memCompanies) {
-        await db.insert(schema.companies).values(c).onConflictDoNothing();
-      }
-      for (const j of memJobs) {
-        await db.insert(schema.jobs).values(j).onConflictDoNothing();
-      }
-      for (const a of memApps) {
-        await db.insert(schema.applications).values(a).onConflictDoNothing();
-      }
-      for (const f of memFlags) {
-        await db.insert(schema.flagReports).values(f).onConflictDoNothing();
-      }
-      for (const r of Object.values(memResumes)) {
-        await db.insert(schema.resumeDocuments).values(r).onConflictDoNothing();
-      }
-      console.log('[Cloud SQL] Initial database seeding completed successfully.');
+      console.log('[Cloud SQL] Seeding initial user records...');
+      await seedIfMissing(schema.users, memUsers, 'users');
+      await seedIfMissing(schema.candidateProfiles, Object.values(memProfiles), 'candidate profiles');
     }
+
+    // All other seed data is backfilled idempotently on every cold start so a
+    // partially-seeded database converges to the full dataset (jobs are the
+    // most common casualty — they silently vanished because seeding stopped
+    // after the users block).
+    await seedIfMissing(schema.companies, memCompanies, 'companies');
+    await seedIfMissing(schema.jobs, memJobs, 'jobs');
+    await seedIfMissing(schema.applications, memApps, 'applications');
+    await seedIfMissing(schema.flagReports, memFlags, 'flag reports');
+    await seedIfMissing(schema.resumeDocuments, Object.values(memResumes), 'resume documents');
   } catch (err) {
     console.warn('[Cloud SQL] Seeding failed or skipped, using memory store:', err);
   }
