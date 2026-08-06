@@ -273,6 +273,7 @@ app.get("/api/health", async (req, res) => {
     urlSchemes: getDbConfigDiagnostics(),
     dbUsable: usable,
     dbReachable: probe ? probe.ok : null,
+    dbError: probe && !probe.ok ? probe.error : null,
     instance: process.env.VERCEL ? "vercel-serverless" : "node",
     timestamp: new Date().toISOString()
   });

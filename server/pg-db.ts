@@ -53,6 +53,13 @@ export async function probeDatabaseConnection(force = false): Promise<{ ok: bool
       instance.execute(sql`select 1`),
       new Promise((_, reject) => setTimeout(() => reject(new Error('connection timed out')), 5000))
     ]);
+    // A bare SELECT 1 proves the socket works but not that the app schema is
+    // usable. The most common live failure is the users table missing a column
+    // the ORM now references ("column does not exist"), which SELECT 1 hides.
+    await Promise.race([
+      instance.execute(sql`select count(*) as n from users`),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('users query timed out')), 5000))
+    ]);
     const result = { ok: true, error: null };
     probeCache = { at: Date.now(), result };
     return result;
