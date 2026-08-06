@@ -51,6 +51,30 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 1): Promise<T> => {
   throw lastErr;
 };
 
+// Writes when a database IS configured must persist to the SHARED database.
+// The historical pattern swallowed the DB error and fell through to the
+// per-instance in-memory arrays, silently creating rows visible ONLY on the
+// serverless instance that handled the request. Every other instance reads the
+// shared DB, so those orphaned rows were invisible to every other user — the
+// exact "each group sees a different dataset" isolation reported in the field
+// (new employers publish a job, but no one else can see it).
+//
+// With this helper, a configured DB is the single source of truth: transient
+// connection blips are retried, and a persistent failure THROWS so the API
+// returns an error the client can retry, instead of faking success with a
+// record nobody else can read. The in-memory store remains the source of truth
+// only for genuine no-DB demo/local mode (see the `!isPgAvailable()` branches).
+const pgWrite = async <T>(fn: () => Promise<T>, label: string): Promise<T> => {
+  if (!isPgAvailable()) {
+    throw new Error(`Database not configured; cannot ${label}.`);
+  }
+  return withRetry(async () => {
+    const result = await fn();
+    flushStore();
+    return result;
+  }, 2);
+};
+
 // True connection check used by /api/health. Env vars can be present yet
 // unusable (wrong scheme, bad credentials, unreachable host), and in that case
 // the pg-* helpers silently fall back to the ephemeral per-instance memory
@@ -328,45 +352,36 @@ export async function pgGetCompanyByOwnerUserId(ownerUserId: string): Promise<Co
 }
 
 export async function pgCreateCompany(company: Company): Promise<Company> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.companies).values(company).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as Company;
-      }
-    } catch (err) {
-      console.warn('Postgres create company failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    memCompanies.push(company);
+    flushStore();
+    return company;
   }
-  memCompanies.push(company);
-  flushStore();
-  return company;
+  return pgWrite(async () => {
+    const res = await db.insert(schema.companies).values(company).returning();
+    if (!res[0]) throw new Error('Company insert returned no row.');
+    return res[0] as Company;
+  }, 'create company');
 }
 
 export async function pgUpdateCompanyStatus(companyId: string, status: 'active' | 'suspended'): Promise<Company | null> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.update(schema.companies).set({ status }).where(eq(schema.companies.id, companyId)).returning();
-      const allJobs = await db.select().from(schema.jobs).where(eq(schema.jobs.company_id, companyId));
-      for (const job of allJobs) {
-        await db.update(schema.jobs).set({ company_status: status }).where(eq(schema.jobs.id, job.id));
-      }
-      if (res[0]) {
-        flushStore();
-        return res[0] as Company;
-      }
-    } catch (err) {
-      console.warn('Postgres update company status failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    const comp = memCompanies.find((c) => c.id === companyId);
+    if (comp) {
+      comp.status = status;
+      memJobs.filter((j) => j.company_id === companyId).forEach((j) => { j.company_status = status; });
     }
+    flushStore();
+    return comp || null;
   }
-  const comp = memCompanies.find((c) => c.id === companyId);
-  if (comp) {
-    comp.status = status;
-    memJobs.filter((j) => j.company_id === companyId).forEach((j) => { j.company_status = status; });
-  }
-  flushStore();
-  return comp || null;
+  return pgWrite(async () => {
+    const res = await db.update(schema.companies).set({ status }).where(eq(schema.companies.id, companyId)).returning();
+    const allJobs = await db.select().from(schema.jobs).where(eq(schema.jobs.company_id, companyId));
+    for (const job of allJobs) {
+      await db.update(schema.jobs).set({ company_status: status }).where(eq(schema.jobs.id, job.id));
+    }
+    return (res[0] as Company) || null;
+  }, 'update company status');
 }
 
 // -------------------------------------------------------------
@@ -384,15 +399,20 @@ export async function pgGetJobs(params: {
   let allJobs: Job[] = memJobs;
   if (isPgAvailable()) {
     try {
-      const dbJobs = (await db.select().from(schema.jobs).orderBy(desc(schema.jobs.created_at))) as Job[];
-      const allCompanies = (await db.select().from(schema.companies)) as Company[];
-      const companyMap = new Map(allCompanies.map((c) => [c.id, c]));
-      allJobs = dbJobs.map((j) => {
-        const comp = companyMap.get(j.company_id);
-        return {
-          ...j,
-          company_status: (comp ? comp.status : j.company_status || 'active') as 'active' | 'suspended'
-        };
+      // The feed is the shared source of truth: retry transient blips so a
+      // flaky instance does not serve the stale seed-only list and hide
+      // newly-published jobs from other users.
+      allJobs = await withRetry(async () => {
+        const dbJobs = (await db.select().from(schema.jobs).orderBy(desc(schema.jobs.created_at))) as Job[];
+        const allCompanies = (await db.select().from(schema.companies)) as Company[];
+        const companyMap = new Map(allCompanies.map((c) => [c.id, c]));
+        return dbJobs.map((j) => {
+          const comp = companyMap.get(j.company_id);
+          return {
+            ...j,
+            company_status: (comp ? comp.status : j.company_status || 'active') as 'active' | 'suspended'
+          };
+        });
       });
     } catch (err) {
       console.warn('Postgres jobs query failed, using memory store:', err);
@@ -463,62 +483,48 @@ export async function pgGetJobById(id: string): Promise<Job | null> {
 }
 
 export async function pgCreateJob(job: Job): Promise<Job> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.jobs).values(job).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as Job;
-      }
-    } catch (err) {
-      console.warn('Postgres create job failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    memJobs.unshift(job);
+    flushStore();
+    return job;
   }
-  memJobs.unshift(job);
-  flushStore();
-  return job;
+  return pgWrite(async () => {
+    const res = await db.insert(schema.jobs).values(job).returning();
+    if (!res[0]) throw new Error('Job insert returned no row.');
+    return res[0] as Job;
+  }, 'create job');
 }
 
 export async function pgUpdateJob(jobId: string, jobData: Partial<Job>): Promise<Job | null> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.update(schema.jobs).set(jobData).where(eq(schema.jobs.id, jobId)).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as Job;
-      }
-    } catch (err) {
-      console.warn('Postgres update job failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    const idx = memJobs.findIndex((j) => j.id === jobId);
+    if (idx >= 0) {
+      memJobs[idx] = { ...memJobs[idx], ...jobData };
+      flushStore();
+      return memJobs[idx];
     }
+    return null;
   }
-  const idx = memJobs.findIndex((j) => j.id === jobId);
-  if (idx >= 0) {
-    memJobs[idx] = { ...memJobs[idx], ...jobData };
-    flushStore();
-    return memJobs[idx];
-  }
-  return null;
+  return pgWrite(async () => {
+    const res = await db.update(schema.jobs).set(jobData).where(eq(schema.jobs.id, jobId)).returning();
+    return (res[0] as Job) || null;
+  }, 'update job');
 }
 
 export async function pgDeleteJob(jobId: string): Promise<boolean> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId)).returning();
-      if (res[0]) {
-        flushStore();
-        return true;
-      }
-    } catch (err) {
-      console.warn('Postgres delete job failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    const idx = memJobs.findIndex((j) => j.id === jobId);
+    if (idx >= 0) {
+      memJobs.splice(idx, 1);
+      flushStore();
+      return true;
     }
+    return false;
   }
-  const idx = memJobs.findIndex((j) => j.id === jobId);
-  if (idx >= 0) {
-    memJobs.splice(idx, 1);
-    flushStore();
-    return true;
-  }
-  return false;
+  return pgWrite(async () => {
+    const res = await db.delete(schema.jobs).where(eq(schema.jobs.id, jobId)).returning();
+    return Boolean(res[0]);
+  }, 'delete job');
 }
 
 // -------------------------------------------------------------
@@ -565,28 +571,24 @@ export async function pgGetApplicationById(id: string): Promise<Application | nu
 }
 
 export async function pgCreateApplication(appData: Application): Promise<Application> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.applications).values(appData).returning();
-      const job = await pgGetJobById(appData.job_id);
-      if (job) {
-        await db.update(schema.jobs).set({ applicant_count: (job.applicant_count || 0) + 1 }).where(eq(schema.jobs.id, job.id));
-      }
-      if (res[0]) {
-        flushStore();
-        return res[0] as Application;
-      }
-    } catch (err) {
-      console.warn('Postgres create application failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    memApps.unshift(appData);
+    const job = memJobs.find((j) => j.id === appData.job_id);
+    if (job) {
+      job.applicant_count = (job.applicant_count || 0) + 1;
     }
+    flushStore();
+    return appData;
   }
-  memApps.unshift(appData);
-  const job = memJobs.find((j) => j.id === appData.job_id);
-  if (job) {
-    job.applicant_count = (job.applicant_count || 0) + 1;
-  }
-  flushStore();
-  return appData;
+  return pgWrite(async () => {
+    const res = await db.insert(schema.applications).values(appData).returning();
+    const job = await pgGetJobById(appData.job_id);
+    if (job) {
+      await db.update(schema.jobs).set({ applicant_count: (job.applicant_count || 0) + 1 }).where(eq(schema.jobs.id, job.id));
+    }
+    if (!res[0]) throw new Error('Application insert returned no row.');
+    return res[0] as Application;
+  }, 'create application');
 }
 
 export async function pgUpdateApplicationStatus(
@@ -594,58 +596,47 @@ export async function pgUpdateApplicationStatus(
   targetStatus: ApplicationStatus,
   historyEntry: StatusHistoryItem
 ): Promise<Application | null> {
-  if (isPgAvailable()) {
-    try {
-      const existing = await pgGetApplicationById(appId);
-      if (existing) {
-        const newHistory = [...(existing.status_history || []), historyEntry];
-        const res = await db
-          .update(schema.applications)
-          .set({ status: targetStatus, status_history: newHistory })
-          .where(eq(schema.applications.id, appId))
-          .returning();
-        if (res[0]) {
-          flushStore();
-          return res[0] as Application;
-        }
-      }
-    } catch (err) {
-      console.warn('Postgres update app status failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    const app = memApps.find((a) => a.id === appId);
+    if (app) {
+      app.status = targetStatus;
+      app.status_history = [...(app.status_history || []), historyEntry];
+      flushStore();
+      return app;
     }
+    return null;
   }
-  const app = memApps.find((a) => a.id === appId);
-  if (app) {
-    app.status = targetStatus;
-    app.status_history = [...(app.status_history || []), historyEntry];
-    flushStore();
-    return app;
-  }
-  return null;
+  return pgWrite(async () => {
+    const existing = await pgGetApplicationById(appId);
+    if (!existing) return null;
+    const newHistory = [...(existing.status_history || []), historyEntry];
+    const res = await db
+      .update(schema.applications)
+      .set({ status: targetStatus, status_history: newHistory })
+      .where(eq(schema.applications.id, appId))
+      .returning();
+    return (res[0] as Application) || null;
+  }, 'update application status');
 }
 
 export async function pgUpdateApplicationNotes(appId: string, internalNotes: string): Promise<Application | null> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db
-        .update(schema.applications)
-        .set({ internal_notes: internalNotes })
-        .where(eq(schema.applications.id, appId))
-        .returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as Application;
-      }
-    } catch (err) {
-      console.warn('Postgres update app notes failed, using memory store:', err);
+  if (!isPgAvailable()) {
+    const app = memApps.find((a) => a.id === appId);
+    if (app) {
+      app.internal_notes = internalNotes;
+      flushStore();
+      return app;
     }
+    return null;
   }
-  const app = memApps.find((a) => a.id === appId);
-  if (app) {
-    app.internal_notes = internalNotes;
-    flushStore();
-    return app;
-  }
-  return null;
+  return pgWrite(async () => {
+    const res = await db
+      .update(schema.applications)
+      .set({ internal_notes: internalNotes })
+      .where(eq(schema.applications.id, appId))
+      .returning();
+    return (res[0] as Application) || null;
+  }, 'update application notes');
 }
 
 // -------------------------------------------------------------
@@ -663,38 +654,29 @@ export async function pgGetFlagReports(): Promise<FlagReport[]> {
 }
 
 export async function pgCreateFlagReport(report: FlagReport): Promise<FlagReport> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.flagReports).values(report).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as FlagReport;
-      }
-    } catch (err) {
-      console.warn('Postgres create flag report failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    memFlags.unshift(report);
+    flushStore();
+    return report;
   }
-  memFlags.unshift(report);
-  flushStore();
-  return report;
+  return pgWrite(async () => {
+    const res = await db.insert(schema.flagReports).values(report).returning();
+    if (!res[0]) throw new Error('Flag report insert returned no row.');
+    return res[0] as FlagReport;
+  }, 'create flag report');
 }
 
 export async function pgResolveFlagReport(id: string): Promise<FlagReport | null> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.update(schema.flagReports).set({ status: 'resolved' }).where(eq(schema.flagReports.id, id)).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as FlagReport;
-      }
-    } catch (err) {
-      console.warn('Postgres resolve flag report failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    const rep = memFlags.find((r) => r.id === id);
+    if (rep) rep.status = 'resolved';
+    flushStore();
+    return rep || null;
   }
-  const rep = memFlags.find((r) => r.id === id);
-  if (rep) rep.status = 'resolved';
-  flushStore();
-  return rep || null;
+  return pgWrite(async () => {
+    const res = await db.update(schema.flagReports).set({ status: 'resolved' }).where(eq(schema.flagReports.id, id)).returning();
+    return (res[0] as FlagReport) || null;
+  }, 'resolve flag report');
 }
 
 // -------------------------------------------------------------
@@ -713,20 +695,16 @@ export async function pgGetResumeDocument(id: string): Promise<ResumeDocument | 
 }
 
 export async function pgCreateResumeDocument(doc: ResumeDocument): Promise<ResumeDocument> {
-  if (isPgAvailable()) {
-    try {
-      const res = await db.insert(schema.resumeDocuments).values(doc).returning();
-      if (res[0]) {
-        flushStore();
-        return res[0] as ResumeDocument;
-      }
-    } catch (err) {
-      console.warn('Postgres create resume doc failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    memResumes[doc.id] = doc;
+    flushStore();
+    return doc;
   }
-  memResumes[doc.id] = doc;
-  flushStore();
-  return doc;
+  return pgWrite(async () => {
+    const res = await db.insert(schema.resumeDocuments).values(doc).returning();
+    if (!res[0]) throw new Error('Resume document insert returned no row.');
+    return res[0] as ResumeDocument;
+  }, 'create resume document');
 }
 
 // -------------------------------------------------------------
@@ -745,23 +723,18 @@ export async function pgGetAllUsers(): Promise<User[]> {
 }
 
 export async function pgDeleteUser(userId: string): Promise<boolean> {
-  if (isPgAvailable()) {
-    try {
-      await db.delete(schema.users).where(eq(schema.users.id, userId));
-      for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
-      for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
-      flushStore();
-      return true;
-    } catch (err) {
-      console.warn('Postgres delete user failed, using memory store:', err);
-    }
+  if (!isPgAvailable()) {
+    const idx = memUsers.findIndex((u) => u.id === userId);
+    if (idx >= 0) memUsers.splice(idx, 1);
+    for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
+    for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
+    flushStore();
+    return true;
   }
-  const idx = memUsers.findIndex((u) => u.id === userId);
-  if (idx >= 0) memUsers.splice(idx, 1);
-  for (let i = memApps.length - 1; i >= 0; i--) if (memApps[i].candidate_id === userId) memApps.splice(i, 1);
-  for (const k of Object.keys(memProfiles)) if (memProfiles[k].user_id === userId) delete memProfiles[k];
-  flushStore();
-  return true;
+  return pgWrite(async () => {
+    await db.delete(schema.users).where(eq(schema.users.id, userId));
+    return true;
+  }, 'delete user');
 }
 
 // -------------------------------------------------------------
