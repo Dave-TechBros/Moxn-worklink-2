@@ -120,24 +120,13 @@ const SESSION_SECRET =
   process.env.SESSION_SECRET || "moxn-worklink-session-secret-2026";
 
 const signSession = (user: User): string => {
-  const payload = JSON.stringify({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    avatar: user.avatar || null,
-    company_id: user.company_id || null,
-    created_at: user.created_at,
-    admin_level: user.admin_level || null,
-    status: user.status || null,
-    verified: user.verified || null
-  });
+  const payload = JSON.stringify({ id: user.id });
   const data = Buffer.from(payload, "utf-8").toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
   return `${data}.${sig}`;
 };
 
-const verifySession = (token: string): User | null => {
+const verifySession = async (token: string): Promise<User | null> => {
   try {
     const dot = token.indexOf(".");
     if (dot === -1) return null;
@@ -147,7 +136,10 @@ const verifySession = (token: string): User | null => {
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    return JSON.parse(Buffer.from(data, "base64url").toString("utf-8"));
+    const { id } = JSON.parse(Buffer.from(data, "base64url").toString("utf-8"));
+    if (!id) return null;
+    const user = await pgGetUserById(id);
+    return user;
   } catch {
     return null;
   }
@@ -166,7 +158,7 @@ const getAuthUser = async (req: express.Request) => {
   }
   const sessionToken = req.headers["x-session-token"] as string;
   if (sessionToken && sessionToken.trim() !== '') {
-    const fromToken = verifySession(sessionToken);
+    const fromToken = await verifySession(sessionToken);
     if (fromToken) return fromToken;
   }
   return null;
