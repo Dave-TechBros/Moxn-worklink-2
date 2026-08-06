@@ -90,6 +90,26 @@ export async function probeDatabaseConnection(force = false): Promise<{ ok: bool
   }
 }
 
+// Seed diagnostics. The seed swallows errors so the app can still boot on the
+// memory store; this exposes the last failure via /api/health so the live
+// database state is debuggable without reading function logs.
+export const seedDiagnostics: {
+  lastAttemptAt: string | null;
+  lastError: string | null;
+  lastTable: string | null;
+  jobsCount: number | null;
+  companiesCount: number | null;
+} = { lastAttemptAt: null, lastError: null, lastTable: null, jobsCount: null, companiesCount: null };
+
+async function seedCounts() {
+  try {
+    const jobs = await db.select().from(schema.jobs);
+    const companies = await db.select().from(schema.companies);
+    seedDiagnostics.jobsCount = jobs.length;
+    seedDiagnostics.companiesCount = companies.length;
+  } catch {}
+}
+
 // -------------------------------------------------------------
 // SEEDING FUNCTION
 // -------------------------------------------------------------
@@ -106,6 +126,8 @@ const seedIfMissing = async <T>(table: any, records: T[], label: string): Promis
       await db.insert(table).values(record).onConflictDoNothing();
       ensured++;
     } catch (err) {
+      seedDiagnostics.lastError = `${label}: ${String(err?.message || err)}`;
+      seedDiagnostics.lastTable = label;
       console.warn(`[Cloud SQL] Seeding "${label}" skipped a record:`, err);
     }
   }
@@ -116,6 +138,7 @@ const seedIfMissing = async <T>(table: any, records: T[], label: string): Promis
 
 export async function seedPgDatabase() {
   if (!isPgAvailable()) return;
+  seedDiagnostics.lastAttemptAt = new Date().toISOString();
   try {
     // Ensure tables exist (and any newer columns are added) before touching
     // them; without this the first request would fail with "relation does not
@@ -145,7 +168,9 @@ export async function seedPgDatabase() {
     await seedIfMissing(schema.applications, memApps, 'applications');
     await seedIfMissing(schema.flagReports, memFlags, 'flag reports');
     await seedIfMissing(schema.resumeDocuments, Object.values(memResumes), 'resume documents');
+    await seedCounts();
   } catch (err) {
+    seedDiagnostics.lastError = `seedPgDatabase: ${String(err?.message || err)}`;
     console.warn('[Cloud SQL] Seeding failed or skipped, using memory store:', err);
   }
 }

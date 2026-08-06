@@ -39,7 +39,8 @@ import {
   pgGetSettings,
   pgUpdateSettings,
   seedPgDatabase,
-  probeDatabaseConnection
+  probeDatabaseConnection,
+  seedDiagnostics
 } from "./pg-db.js";
 import { hasUsablePgConfig, getDbConfigDiagnostics } from "../src/db/index.js";
 import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
@@ -274,6 +275,7 @@ app.get("/api/health", async (req, res) => {
     dbUsable: usable,
     dbReachable: probe ? probe.ok : null,
     dbError: probe && !probe.ok ? probe.error : null,
+    seed: seedDiagnostics,
     instance: process.env.VERCEL ? "vercel-serverless" : "node",
     timestamp: new Date().toISOString()
   });
