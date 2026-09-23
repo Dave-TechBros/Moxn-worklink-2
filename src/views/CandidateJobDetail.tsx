@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Job, Application } from '../types';
+import { Job, Application, Company } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from '../components/StatusBadge';
 import {
@@ -35,6 +35,26 @@ export const CandidateJobDetail: React.FC<CandidateJobDetailProps> = ({
   const { authFetch, currentUser } = useAuth();
   const [existingApp, setExistingApp] = useState<Application | null>(null);
   const [checkingApp, setCheckingApp] = useState<boolean>(true);
+  const [company, setCompany] = useState<Company | null>(
+    (job as any).company || null
+  );
+
+  useEffect(() => {
+    const fetchJobDetail = async () => {
+      try {
+        const res = await authFetch(`/api/jobs/${job.id}`);
+        if (res.ok) {
+          const detail = await res.json();
+          if (detail.company) {
+            setCompany(detail.company);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching job company detail:', err);
+      }
+    };
+    fetchJobDetail();
+  }, [job.id]);
 
   useEffect(() => {
     const checkUserApplication = async () => {
@@ -208,28 +228,46 @@ export const CandidateJobDetail: React.FC<CandidateJobDetailProps> = ({
             </h3>
             <div className="flex items-center gap-3 mb-4">
               <img
-                src={job.company_logo || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=150'}
-                alt={job.company_name}
+                src={company?.logo || job.company_logo || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=150'}
+                alt={company?.name || job.company_name}
                 className="w-10 h-10 rounded-xl object-cover border border-slate-200"
               />
               <div>
-                <h4 className="font-bold text-slate-900 text-sm">{job.company_name}</h4>
+                <h4 className="font-bold text-slate-900 text-sm">
+                  {company?.name || job.company_name}
+                </h4>
                 <p className="text-xs text-slate-500">Verified Employer</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed mb-4">
-              TechFlow builds next-generation real-time analytics engines and developer infrastructure for high-growth engineering teams worldwide.
+              {company?.description || 'This company has not added an About description yet.'}
             </p>
+
+            {company?.website && (
+              <a
+                href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 mb-2"
+              >
+                <ExternalLink size={13} />
+                <span>{company.website}</span>
+              </a>
+            )}
 
             <div className="space-y-2 pt-4 border-t border-slate-100 text-xs">
               <div className="flex items-center justify-between text-slate-600">
                 <span className="text-slate-400">Location:</span>
-                <span className="font-semibold text-slate-800">{job.location}</span>
+                <span className="font-semibold text-slate-800">
+                  {company?.location || job.location}
+                </span>
               </div>
               <div className="flex items-center justify-between text-slate-600">
                 <span className="text-slate-400">Industry:</span>
-                <span className="font-semibold text-slate-800">Enterprise Software</span>
+                <span className="font-semibold text-slate-800">
+                  {company?.industry || 'Not specified'}
+                </span>
               </div>
             </div>
           </div>

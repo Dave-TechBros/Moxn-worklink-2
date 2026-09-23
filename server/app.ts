@@ -15,6 +15,7 @@ import {
   pgGetCompanyByOwnerUserId,
   pgCreateCompany,
   pgUpdateCompanyStatus,
+  pgUpdateCompany,
   pgGetJobs,
   pgGetJobById,
   pgCreateJob,
@@ -38,12 +39,18 @@ import {
   pgGetAuditLogs,
   pgGetSettings,
   pgUpdateSettings,
+  pgGetConversationById,
+  pgGetConversationByApplicationId,
+  pgGetOrCreateConversation,
+  pgGetConversationsForUser,
+  pgGetMessagesByConversation,
+  pgAddMessage,
   seedPgDatabase,
   probeDatabaseConnection,
   seedDiagnostics
 } from "./pg-db.js";
 import { hasUsablePgConfig, getDbConfigDiagnostics } from "../src/db/index.js";
-import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus } from "../src/types";
+import { User, UserRole, CandidateProfile, Company, Application, ApplicationStatus, FlagReport, StatusHistoryItem, AdminLevel, PlatformNotification, AuditLogEntry, JobStatus, Conversation, ChatMessage } from "../src/types";
 
 export const app = express();
 
@@ -671,6 +678,22 @@ app.put("/api/candidate/profile", async (req, res) => {
     // (resume_file_id, resume_file_name, years_experience, avatar) are preserved.
     const existing = await pgGetCandidateProfile(user.id);
 
+    // Optimistic concurrency: the client sends the profile version (updated_at)
+    // its form was based on. If the server's current version is NEWER, this
+    // write is built on stale data and could silently wipe values a concurrent
+    // save already persisted (the "profile went blank after refresh" bug). Reject
+    // it so the client can refresh and re-apply instead of destroying data.
+    if (existing && profileData.client_updated_at) {
+      const clientVersion = String(profileData.client_updated_at || '').trim();
+      const serverVersion = existing.updated_at ? String(existing.updated_at) : '';
+      if (clientVersion !== '' && serverVersion !== '' && clientVersion !== serverVersion) {
+        return res.status(409).json({
+          error: "Your profile was changed elsewhere since you loaded it. Your unsaved edits were not lost — review and save again.",
+          current: existing
+        });
+      }
+    }
+
     const updated = await pgUpsertCandidateProfile({
       ...(existing || {
         user_id: user.id,
@@ -1006,6 +1029,216 @@ app.patch("/api/applications/:id/notes", async (req, res) => {
     res.json({ success: true, internal_notes: updated.internal_notes });
   } catch (err) {
     res.status(500).json({ error: "Failed to update internal notes." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// EMPLOYER: COMPANY PROFILE
+// -----------------------------------------------------------------------------
+// Resolves the company owned by the authenticated employer so the dashboard can
+// manage its own About/profile information (description, industry, website, ...).
+const resolveOwnedCompany = async (user: User | null) => {
+  if (!user) return null;
+  return (await pgGetCompanyByOwnerUserId(user.id)) || (user.company_id ? await pgGetCompanyById(user.company_id) : null);
+};
+
+app.get("/api/company", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+    if (user.role !== "employer" && user.role !== "admin") {
+      return res.status(403).json({ error: "Unauthorized: Employer role required." });
+    }
+    const company = await resolveOwnedCompany(user);
+    if (!company) return res.status(404).json({ error: "Company profile not found for this account." });
+    res.json(company);
+  } catch (err) {
+    console.error('API GET /api/company error:', err);
+    res.status(500).json({ error: "Failed to fetch company profile." });
+  }
+});
+
+app.put("/api/company", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+    if (user.role !== "employer" && user.role !== "admin") {
+      return res.status(403).json({ error: "Unauthorized: Employer role required." });
+    }
+
+    const company = await resolveOwnedCompany(user);
+    if (!company) return res.status(404).json({ error: "Company profile not found for this account." });
+
+    const { name, logo, description, industry, website, location } = req.body;
+    const updated = await pgUpdateCompany(company.id, {
+      name: name !== undefined && name !== null && String(name).trim() !== "" ? String(name).trim() : company.name,
+      logo: logo !== undefined && logo !== null && String(logo).trim() !== "" ? String(logo).trim() : company.logo,
+      description: description !== undefined && description !== null && String(description).trim() !== "" ? String(description).trim() : company.description,
+      industry: industry !== undefined && industry !== null && String(industry).trim() !== "" ? String(industry).trim() : company.industry,
+      website: website !== undefined && website !== null && String(website).trim() !== "" ? String(website).trim() : company.website,
+      location: location !== undefined && location !== null && String(location).trim() !== "" ? String(location).trim() : company.location
+    });
+
+    res.json({ success: true, company: updated });
+  } catch (err) {
+    console.error('API PUT /api/company error:', err);
+    res.status(500).json({ error: "Failed to update company profile." });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// EMPLOYER ↔ APPLICANT COMMUNICATION (Interview Messaging)
+// -----------------------------------------------------------------------------
+// Resolves the set of company ids the authenticated user may act for as an
+// employer, so conversation visibility can be checked across both the seeded
+// owner_id linkage and the user.company_id foreign key.
+const getUserCompanyIds = async (user: User | null): Promise<string[]> => {
+  if (!user) return [];
+  const owned = await pgGetCompanyByOwnerUserId(user.id);
+  const ids = new Set<string>();
+  if (owned) ids.add(owned.id);
+  if (user.company_id) ids.add(user.company_id);
+  return Array.from(ids);
+};
+
+const fillConversation = async (application: Application): Promise<Conversation> => {
+  const now = new Date().toISOString();
+  const conversation: Conversation = {
+    id: crypto.randomUUID(),
+    application_id: application.id,
+    job_id: application.job_id,
+    company_id: application.company_id,
+    candidate_id: application.candidate_id,
+    company_name: application.company_name || 'Unknown Company',
+    job_title: application.job_title || 'Position',
+    candidate_name: application.candidate_name || 'Candidate',
+    candidate_headline: application.candidate_headline || undefined,
+    candidate_email: application.candidate_email || undefined,
+    created_at: now,
+    last_message_at: now
+  };
+  return pgGetOrCreateConversation(conversation);
+};
+
+// POST /api/conversations — open (or fetch) a conversation for an application.
+app.post("/api/conversations", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+
+    const { application_id } = req.body;
+    if (!application_id) return res.status(400).json({ error: "application_id is required." });
+
+    const application = await pgGetApplicationById(application_id);
+    if (!application) return res.status(404).json({ error: "Application not found." });
+
+    const companyIds = await getUserCompanyIds(user);
+    const canView =
+      user.role === 'admin' ||
+      (user.role === 'candidate' && application.candidate_id === user.id) ||
+      (user.role === 'employer' && companyIds.includes(application.company_id));
+    if (!canView) {
+      return res.status(403).json({ error: "Unauthorized: You do not have access to this application's conversation." });
+    }
+
+    const conversation = await fillConversation(application);
+    const existing = await pgGetConversationById(conversation.id);
+    const messages = existing ? await pgGetMessagesByConversation(existing.id) : [];
+    res.json({ conversation, messages });
+  } catch (err) {
+    console.error('API POST /api/conversations error:', err);
+    res.status(500).json({ error: "Failed to open conversation." });
+  }
+});
+
+// GET /api/conversations — list conversations visible to the current user.
+app.get("/api/conversations", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+
+    const companyIds = await getUserCompanyIds(user);
+    const conversations = await pgGetConversationsForUser(user.id, user.role, companyIds);
+    const sorted = conversations.sort((a, b) => b.last_message_at.localeCompare(a.last_message_at));
+
+    const withMeta = await Promise.all(
+      sorted.map(async (c) => ({
+        conversation: c,
+        messageCount: (await pgGetMessagesByConversation(c.id)).length
+      }))
+    );
+
+    res.json({ conversations: withMeta });
+  } catch (err) {
+    console.error('API GET /api/conversations error:', err);
+    res.status(500).json({ error: "Failed to fetch conversations." });
+  }
+});
+
+// GET /api/conversations/:id/messages — messages in a conversation.
+app.get("/api/conversations/:id/messages", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+
+    const conversation = await pgGetConversationById(req.params.id);
+    if (!conversation) return res.status(404).json({ error: "Conversation not found." });
+
+    const companyIds = await getUserCompanyIds(user);
+    const canView =
+      user.role === 'admin' ||
+      (user.role === 'candidate' && conversation.candidate_id === user.id) ||
+      (user.role === 'employer' && companyIds.includes(conversation.company_id));
+    if (!canView) {
+      return res.status(403).json({ error: "Unauthorized: You do not have access to this conversation." });
+    }
+
+    const messages = await pgGetMessagesByConversation(conversation.id);
+    res.json({ conversation, messages });
+  } catch (err) {
+    console.error('API GET conversation messages error:', err);
+    res.status(500).json({ error: "Failed to fetch messages." });
+  }
+});
+
+// POST /api/conversations/:id/messages — send a message in a conversation.
+app.post("/api/conversations/:id/messages", async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized: User not authenticated." });
+
+    const conversation = await pgGetConversationById(req.params.id);
+    if (!conversation) return res.status(404).json({ error: "Conversation not found." });
+
+    const companyIds = await getUserCompanyIds(user);
+    const canView =
+      user.role === 'admin' ||
+      (user.role === 'candidate' && conversation.candidate_id === user.id) ||
+      (user.role === 'employer' && companyIds.includes(conversation.company_id));
+    if (!canView) {
+      return res.status(403).json({ error: "Unauthorized: You do not have access to this conversation." });
+    }
+
+    const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
+    if (!body) return res.status(400).json({ error: "Message body is required." });
+
+    const senderRole = user.role === 'candidate' ? 'candidate' : user.role === 'admin' ? 'admin' : 'employer';
+    const message: ChatMessage = {
+      id: crypto.randomUUID(),
+      conversation_id: conversation.id,
+      sender_id: user.id,
+      sender_name: user.name,
+      sender_role: senderRole,
+      body,
+      created_at: new Date().toISOString()
+    };
+
+    const saved = await pgAddMessage(message);
+    if (!saved) return res.status(500).json({ error: "Failed to save message." });
+    res.json({ success: true, message: saved });
+  } catch (err) {
+    console.error('API POST conversation message error:', err);
+    res.status(500).json({ error: "Failed to send message." });
   }
 });
 

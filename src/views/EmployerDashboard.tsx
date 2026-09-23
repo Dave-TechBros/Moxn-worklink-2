@@ -3,6 +3,8 @@ import { Job, Application, ApplicationStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import { ApplicantDetailModal } from '../components/ApplicantDetailModal';
+import { CompanyProfileModal } from '../components/CompanyProfileModal';
+import { ConversationModal } from '../components/ConversationModal';
 import {
   Briefcase,
   PlusCircle,
@@ -34,13 +36,15 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
   onViewPipeline,
   onEditJob
 }) => {
-  const { authFetch, currentCompany, currentUser } = useAuth();
+  const { authFetch, currentCompany, currentUser, refreshAuthData } = useAuth();
   const { showToast } = useToast();
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'jobs' | 'applicants'>('jobs');
+  const [companyModalOpen, setCompanyModalOpen] = useState<boolean>(false);
+  const [conversationModalOpen, setConversationModalOpen] = useState<boolean>(false);
 
   // Selected application for detail & CV modal
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
@@ -66,6 +70,13 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
       if (appsRes.ok) {
         const allApps: Application[] = await appsRes.json();
         setApplications(allApps);
+        // Re-sync the selected applicant with its enriched record
+        // (candidate_profile / resume_document) so profile details are never
+        // dropped when the application list is refetched after a stage change.
+        setSelectedApp((prev) => {
+          if (!prev) return prev;
+          return allApps.find((a) => a.id === prev.id) || prev;
+        });
       }
     } catch (err) {
       console.error('Failed to load employer data:', err);
@@ -124,11 +135,8 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
         'success'
       );
 
-      // Refresh local data
+      // Refresh local data (re-syncs selectedApp with the enriched record)
       fetchEmployerData();
-      if (selectedApp?.id === app.id) {
-        setSelectedApp(data.application);
-      }
     } catch (err: any) {
       showToast('Transition Failed', err.message, 'error');
     }
@@ -159,6 +167,14 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setCompanyModalOpen(true)}
+            className="px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
+          >
+            <Building2 size={16} />
+            <span>Company Profile</span>
+          </button>
+
           <button
             onClick={() => fetchEmployerData()}
             className="p-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -450,6 +466,25 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
         application={selectedApp}
         onStatusChange={handleStatusChange}
         onRefresh={fetchEmployerData}
+        onMessageCandidate={() => setConversationModalOpen(true)}
+      />
+
+      {/* INTERVIEW CONVERSATION MODAL */}
+      <ConversationModal
+        isOpen={conversationModalOpen}
+        onClose={() => setConversationModalOpen(false)}
+        application={selectedApp}
+      />
+
+      {/* COMPANY PROFILE MODAL */}
+      <CompanyProfileModal
+        isOpen={companyModalOpen}
+        onClose={() => setCompanyModalOpen(false)}
+        company={currentCompany}
+        onSaved={() => {
+          refreshAuthData();
+          fetchEmployerData();
+        }}
       />
     </div>
   );

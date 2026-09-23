@@ -40,7 +40,7 @@ export const CandidateJobSearch: React.FC<CandidateJobSearchProps> = ({
     location: '',
     employment_type: 'All',
     location_type: 'All',
-    salary_min: 80000,
+    salary_min: 0,
     tags: []
   });
 

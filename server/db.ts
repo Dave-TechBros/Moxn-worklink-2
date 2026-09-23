@@ -13,6 +13,8 @@ import {
   StatusHistoryItem,
   PlatformNotification,
   AuditLogEntry,
+  Conversation,
+  ChatMessage,
   PlatformSettings
 } from '../src/types';
 
@@ -569,6 +571,45 @@ export const resumeDocuments: Record<string, ResumeDocument> = {
   }
 };
 
+// Pre-seeded Interview Conversations (Feature: Employer ↔ Applicant Communication)
+export const conversations: Conversation[] = [
+  {
+    id: 'conv-1',
+    application_id: 'app-201',
+    job_id: 'job-101',
+    company_id: 'comp-1',
+    candidate_id: 'user-cand-1',
+    company_name: 'TechFlow Systems',
+    job_title: 'Senior Staff Frontend Architect',
+    candidate_name: 'Sarah Chen',
+    candidate_headline: 'Senior Fullstack Engineer | React, Node.js & Cloud Systems',
+    candidate_email: 'sarah.chen@example.com',
+    created_at: '2026-07-19T14:05:00.000Z',
+    last_message_at: '2026-07-20T09:30:00.000Z'
+  }
+];
+
+export const messages: ChatMessage[] = [
+  {
+    id: 'msg-1',
+    conversation_id: 'conv-1',
+    sender_id: 'user-emp-1',
+    sender_name: 'Elena Rostova',
+    sender_role: 'employer',
+    body: 'Hi Sarah — congratulations on progressing to the interview stage! Which dates work best for a technical screen next week?',
+    created_at: '2026-07-19T14:05:00.000Z'
+  },
+  {
+    id: 'msg-2',
+    conversation_id: 'conv-1',
+    sender_id: 'user-cand-1',
+    sender_name: 'Sarah Chen',
+    sender_role: 'candidate',
+    body: 'Thanks so much! Tuesday or Thursday afternoons both work well for me. Happy to share a video link too.',
+    created_at: '2026-07-20T09:30:00.000Z'
+  }
+];
+
 // Admin platform collections
 export const notifications: PlatformNotification[] = [];
 export const auditLogs: AuditLogEntry[] = [];
@@ -654,6 +695,8 @@ export function saveStore(): void {
       resumeDocuments,
       notifications,
       auditLogs,
+      conversations,
+      messages,
       settings
     };
     const payload = JSON.stringify(data, null, 2);
@@ -752,6 +795,14 @@ export function loadStore(): void {
       if (Array.isArray(data.auditLogs)) {
         auditLogs.length = 0;
         auditLogs.push(...data.auditLogs);
+      }
+      if (Array.isArray(data.conversations)) {
+        conversations.length = 0;
+        conversations.push(...data.conversations);
+      }
+      if (Array.isArray(data.messages)) {
+        messages.length = 0;
+        messages.push(...data.messages);
       }
       if (data.settings && typeof data.settings === 'object') {
         settings = { ...defaultSettings, ...data.settings };

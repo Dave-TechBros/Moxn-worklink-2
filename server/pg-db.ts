@@ -12,6 +12,8 @@ import {
   StatusHistoryItem,
   PlatformNotification,
   AuditLogEntry,
+  Conversation,
+  ChatMessage,
   PlatformSettings
 } from '../src/types';
 import {
@@ -24,6 +26,8 @@ import {
   resumeDocuments as memResumes,
   notifications as memNotifications,
   auditLogs as memAuditLogs,
+  conversations as memConversations,
+  messages as memMessages,
   getSettings,
   updateSettings,
   flushStore
@@ -192,6 +196,8 @@ export async function seedPgDatabase() {
     await seedIfMissing(schema.applications, memApps, 'applications');
     await seedIfMissing(schema.flagReports, memFlags, 'flag reports');
     await seedIfMissing(schema.resumeDocuments, Object.values(memResumes), 'resume documents');
+    await seedIfMissing(schema.conversations, memConversations, 'conversations');
+    await seedIfMissing(schema.messages, memMessages, 'messages');
     await seedCounts();
   } catch (err) {
     seedDiagnostics.lastError = `seedPgDatabase: ${String(err?.message || err)}`;
@@ -382,6 +388,40 @@ export async function pgUpdateCompanyStatus(companyId: string, status: 'active' 
     }
     return (res[0] as Company) || null;
   }, 'update company status');
+}
+
+export async function pgUpdateCompany(companyId: string, companyData: Partial<Company>): Promise<Company | null> {
+  if (!isPgAvailable()) {
+    const comp = memCompanies.find((c) => c.id === companyId);
+    if (comp) {
+      const updated = { ...comp, ...companyData };
+      const idx = memCompanies.findIndex((c) => c.id === companyId);
+      memCompanies[idx] = updated;
+      // Keep denormalized job copies in sync so feeds always show the current name/logo.
+      memJobs.forEach((j) => {
+        if (j.company_id === companyId) {
+          if (companyData.name !== undefined) j.company_name = companyData.name;
+          if (companyData.logo !== undefined) j.company_logo = companyData.logo;
+        }
+      });
+      flushStore();
+      return updated;
+    }
+    return null;
+  }
+  return pgWrite(async () => {
+    const res = await db.update(schema.companies).set(companyData).where(eq(schema.companies.id, companyId)).returning();
+    const allJobs = await db.select().from(schema.jobs).where(eq(schema.jobs.company_id, companyId));
+    const patch: Partial<Job> = {};
+    if (companyData.name !== undefined) patch.company_name = companyData.name;
+    if (companyData.logo !== undefined) patch.company_logo = companyData.logo;
+    if (Object.keys(patch).length > 0) {
+      for (const job of allJobs) {
+        await db.update(schema.jobs).set(patch).where(eq(schema.jobs.id, job.id));
+      }
+    }
+    return (res[0] as Company) || null;
+  }, 'update company');
 }
 
 // -------------------------------------------------------------
@@ -774,6 +814,106 @@ export async function pgUpdateSettings(patch: Partial<PlatformSettings>): Promis
   const updated = updateSettings(patch);
   flushStore();
   return updated;
+}
+
+// -------------------------------------------------------------
+// COMMUNICATION: CONVERSATION & MESSAGE HELPERS
+// -------------------------------------------------------------
+export async function pgGetConversationById(id: string): Promise<Conversation | null> {
+  if (!isPgAvailable()) {
+    return memConversations.find((c) => c.id === id) || null;
+  }
+  return pgWrite(async () => {
+    const res = await db.select().from(schema.conversations).where(eq(schema.conversations.id, id)).limit(1);
+    return (res[0] as Conversation) || null;
+  }, 'get conversation by id');
+}
+
+export async function pgGetConversationByApplicationId(applicationId: string): Promise<Conversation | null> {
+  if (!isPgAvailable()) {
+    return memConversations.find((c) => c.application_id === applicationId) || null;
+  }
+  return pgWrite(async () => {
+    const res = await db.select().from(schema.conversations).where(eq(schema.conversations.application_id, applicationId)).limit(1);
+    return (res[0] as Conversation) || null;
+  }, 'get conversation by application');
+}
+
+export async function pgGetOrCreateConversation(conversation: Conversation): Promise<Conversation> {
+  const existing = await pgGetConversationByApplicationId(conversation.application_id);
+  if (existing) return existing;
+  if (!isPgAvailable()) {
+    memConversations.unshift(conversation);
+    flushStore();
+    return conversation;
+  }
+  return pgWrite(async () => {
+    const res = await db
+      .insert(schema.conversations)
+      .values(conversation)
+      .onConflictDoNothing({ target: schema.conversations.application_id })
+      .returning();
+    if (res[0]) return res[0] as Conversation;
+    const raced = await pgGetConversationByApplicationId(conversation.application_id);
+    if (raced) return raced;
+    return conversation;
+  }, 'create conversation');
+}
+
+export async function pgGetConversationsForUser(
+  userId: string,
+  role: string,
+  companyIds: string[]
+): Promise<Conversation[]> {
+  let list: Conversation[];
+  if (!isPgAvailable()) {
+    list = memConversations.slice();
+  } else {
+    list = await pgWrite(async () => {
+      const res = await db.select().from(schema.conversations).orderBy(desc(schema.conversations.last_message_at));
+      return res as Conversation[];
+    }, 'list conversations');
+  }
+  if (role === 'admin') return list;
+  if (role === 'candidate') return list.filter((c) => c.candidate_id === userId);
+  return list.filter((c) => companyIds.includes(c.company_id));
+}
+
+export async function pgGetMessagesByConversation(conversationId: string): Promise<ChatMessage[]> {
+  if (!isPgAvailable()) {
+    return memMessages
+      .filter((m) => m.conversation_id === conversationId)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+  return pgWrite(async () => {
+    const res = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversation_id, conversationId))
+      .orderBy(schema.messages.created_at);
+    return res as ChatMessage[];
+  }, 'list messages');
+}
+
+export async function pgAddMessage(
+  message: ChatMessage
+): Promise<ChatMessage | null> {
+  const conv = await pgGetConversationById(message.conversation_id);
+  if (!conv) return null;
+  if (!isPgAvailable()) {
+    conv.last_message_at = message.created_at;
+    memMessages.push(message);
+    flushStore();
+    return message;
+  }
+  return pgWrite(async () => {
+    const res = await db.insert(schema.messages).values(message).returning();
+    await db
+      .update(schema.conversations)
+      .set({ last_message_at: message.created_at })
+      .where(eq(schema.conversations.id, conv.id));
+    return (res[0] as ChatMessage) || null;
+  }, 'create message');
 }
 
 if (isPgAvailable()) {

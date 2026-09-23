@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Job } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
+import { SkillSuggestInput } from '../components/SkillSuggestInput';
 import {
   ArrowLeft,
-  Plus,
   X,
   Building2,
   Save,
@@ -29,35 +29,31 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
 
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(jobToEdit?.title || '');
-  const [location, setLocation] = useState(jobToEdit?.location || 'San Francisco, CA');
+  const [location, setLocation] = useState(jobToEdit?.location || '');
   const [locationType, setLocationType] = useState<string>(
     jobToEdit?.location_type || 'Hybrid'
   );
   const [employmentType, setEmploymentType] = useState<string>(
     jobToEdit?.employment_type || 'Full-time'
   );
-  const [salaryMin, setSalaryMin] = useState<number>(jobToEdit?.salary_min || 160000);
-  const [salaryMax, setSalaryMax] = useState<number>(jobToEdit?.salary_max || 210000);
-  const [description, setDescription] = useState(
-    jobToEdit?.description ||
-      `We are looking for a key engineering lead to join our platform team. You will drive system design, performance profiling, and mentor team members.`
+  const [salaryMin, setSalaryMin] = useState<string>(
+    jobToEdit ? String(jobToEdit.salary_min ?? '') : ''
   );
+  const [salaryMax, setSalaryMax] = useState<string>(
+    jobToEdit ? String(jobToEdit.salary_max ?? '') : ''
+  );
+  const [description, setDescription] = useState(jobToEdit?.description || '');
   const [requirements, setRequirements] = useState<string[]>(
-    jobToEdit?.requirements || [
-      '5+ years experience building production scalable web software',
-      'Strong knowledge of TypeScript, React, and Node.js',
-      'Familiarity with distributed data models and CI/CD'
-    ]
+    jobToEdit?.requirements || []
   );
   const [newRequirement, setNewRequirement] = useState('');
-  const [tags, setTags] = useState<string[]>(
-    jobToEdit?.tags || ['React', 'TypeScript', 'Node.js']
-  );
+  const [tags, setTags] = useState<string[]>(jobToEdit?.tags || []);
   const [newTag, setNewTag] = useState('');
 
-  const handleAddRequirement = () => {
-    if (newRequirement.trim()) {
-      setRequirements([...requirements, newRequirement.trim()]);
+  const handleAddRequirement = (value?: string) => {
+    const req = (value ?? newRequirement).trim();
+    if (req) {
+      setRequirements([...requirements, req]);
       setNewRequirement('');
     }
   };
@@ -66,9 +62,10 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
     setRequirements(requirements.filter((_, i) => i !== idx));
   };
 
-  const handleAddTag = () => {
-    if (newTag.trim() && !tags.includes(newTag.trim())) {
-      setTags([...tags, newTag.trim()]);
+  const handleAddTag = (value?: string) => {
+    const tag = (value ?? newTag).trim();
+    if (tag && !tags.includes(tag)) {
+      setTags([...tags, tag]);
       setNewTag('');
     }
   };
@@ -92,8 +89,8 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
         location,
         location_type: locationType,
         employment_type: employmentType,
-        salary_min: salaryMin,
-        salary_max: salaryMax,
+        salary_min: salaryMin ? Number(salaryMin) : 0,
+        salary_max: salaryMax ? Number(salaryMax) : 0,
         salary_currency: 'USD',
         tags,
         status
@@ -145,7 +142,7 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div>
           <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
-            {currentCompany?.name || 'TechFlow Systems'} • Role Builder
+            {currentCompany?.name || 'Your Company'} • Role Builder
           </span>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
             {jobToEdit ? 'Edit Position Listing' : 'Post New Open Position'}
@@ -242,7 +239,7 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
                 type="number"
                 step={5000}
                 value={salaryMin}
-                onChange={(e) => setSalaryMin(Number(e.target.value))}
+                onChange={(e) => setSalaryMin(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-emerald-800 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -255,7 +252,7 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
                 type="number"
                 step={5000}
                 value={salaryMax}
-                onChange={(e) => setSalaryMax(Number(e.target.value))}
+                onChange={(e) => setSalaryMax(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-emerald-800 focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -299,20 +296,15 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
           </div>
 
           <div className="flex gap-2">
-            <input
-              type="text"
+            <SkillSuggestInput
               value={newRequirement}
-              onChange={(e) => setNewRequirement(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddRequirement()}
+              onChange={setNewRequirement}
+              onAdd={handleAddRequirement}
               placeholder="Add requirement bullet..."
-              className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
+              inputClassName="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
+              buttonLabel="Add"
+              buttonClassName="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
             />
-            <button
-              onClick={handleAddRequirement}
-              className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
-            >
-              Add
-            </button>
           </div>
         </div>
 
@@ -337,20 +329,16 @@ export const EmployerJobPosting: React.FC<EmployerJobPostingProps> = ({
           </div>
 
           <div className="flex gap-2 max-w-sm">
-            <input
-              type="text"
+            <SkillSuggestInput
               value={newTag}
-              onChange={(e) => setNewTag(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+              onChange={setNewTag}
+              onAdd={handleAddTag}
+              exclude={tags}
               placeholder="Add tag (e.g. Go, AWS)"
-              className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+              inputClassName="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+              buttonLabel="Add Tag"
+              buttonClassName="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
             />
-            <button
-              onClick={handleAddTag}
-              className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800"
-            >
-              Add Tag
-            </button>
           </div>
         </div>
       </div>

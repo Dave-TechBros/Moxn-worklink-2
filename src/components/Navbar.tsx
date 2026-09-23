@@ -14,7 +14,8 @@ import {
   LogOut,
   LogIn,
   UserPlus,
-  Home
+  Home,
+  MessageSquare
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -39,6 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
       return [
         { id: 'jobs', label: 'Explore Roles', icon: Search },
         { id: 'applications', label: 'My Applications', icon: Layers },
+        { id: 'messages', label: 'Messages', icon: MessageSquare },
         { id: 'profile', label: 'Candidate Profile & Resume', icon: FileText }
       ];
     } else if (currentUser.role === 'employer') {
@@ -161,6 +163,18 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                   </div>
 
                   <div className="py-1">
+                    {currentUser.role === 'candidate' && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          setActiveTab('messages');
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <MessageSquare size={14} className="text-slate-400" />
+                        <span>Messages</span>
+                      </button>
+                    )}
                     {currentUser.role === 'candidate' && (
                       <button
                         onClick={() => {

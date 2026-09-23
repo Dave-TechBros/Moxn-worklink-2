@@ -123,6 +123,34 @@ export interface FlagReport {
   created_at: string;
 }
 
+// A conversation is always bound to exactly one application
+// (company + applicant + job). It is created on demand so the same
+// application never spawns duplicate conversations.
+export interface Conversation {
+  id: string;
+  application_id: string;
+  job_id: string;
+  company_id: string;
+  candidate_id: string;
+  company_name: string;
+  job_title: string;
+  candidate_name: string;
+  candidate_headline?: string;
+  candidate_email?: string;
+  created_at: string;
+  last_message_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_role: 'employer' | 'candidate' | 'admin';
+  body: string;
+  created_at: string;
+}
+
 export interface ResumeDocument {
   id: string;
   user_id: string;

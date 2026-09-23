@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ApplicantDetailModal } from '../components/ApplicantDetailModal';
+import { ConversationModal } from '../components/ConversationModal';
 import {
   Users,
   Eye,
@@ -45,6 +46,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
   // Selected Candidate Drawer & Modal
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
+  const [conversationModalOpen, setConversationModalOpen] = useState<boolean>(false);
 
   // Confirm Destructive Transition Dialog State
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -67,7 +69,11 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
 
       if (jobsRes.ok) {
         const allJobs: Job[] = await jobsRes.json();
-        setJobs(allJobs);
+        // Filter jobs owned by employer company (mirrors EmployerDashboard)
+        const companyJobs = currentCompany
+          ? allJobs.filter((j) => j.company_id === currentCompany.id)
+          : [];
+        setJobs(companyJobs);
       }
 
       if (appsRes.ok) {
@@ -76,6 +82,15 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
         if (allApps.length > 0 && !selectedApp) {
           setSelectedApp(allApps[0]);
           setInternalNote(allApps[0].internal_notes || '');
+        } else if (selectedApp) {
+          // Re-sync the selected applicant with its enriched record
+          // (candidate_profile / resume_document) so profile details are never
+          // dropped when the application list is refetched after a stage change.
+          const refreshed = allApps.find((a) => a.id === selectedApp.id);
+          if (refreshed) {
+            setSelectedApp(refreshed);
+            setInternalNote(refreshed.internal_notes || '');
+          }
         }
       }
     } catch (err) {
@@ -138,11 +153,8 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
         'success'
       );
 
-      // Refresh applications data
+      // Refresh applications data (re-syncs selectedApp with the enriched record)
       await fetchData();
-      if (selectedApp?.id === app.id) {
-        setSelectedApp(data.application);
-      }
     } catch (err: any) {
       showToast('Transition Error', err.message, 'error');
     }
@@ -493,6 +505,14 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
           await executeMoveStatus(app, targetStatus, true);
         }}
         onRefresh={fetchData}
+        onMessageCandidate={() => setConversationModalOpen(true)}
+      />
+
+      {/* INTERVIEW CONVERSATION MODAL */}
+      <ConversationModal
+        isOpen={conversationModalOpen}
+        onClose={() => setConversationModalOpen(false)}
+        application={selectedApp}
       />
     </div>
   );

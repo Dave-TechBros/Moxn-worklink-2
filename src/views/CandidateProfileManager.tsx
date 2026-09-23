@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CandidateProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
+import { SkillSuggestInput } from '../components/SkillSuggestInput';
 import {
   User,
   FileText,
@@ -41,6 +42,11 @@ export const CandidateProfileManager: React.FC = () => {
   // not overwrite a profile the user is currently typing in (this previously
   // caused edits to revert and forced repeated slow saves).
   const dirtyRef = useRef(false);
+  // Guards form re-syncs against out-of-order/stale context updates: we only
+  // re-hydrate the form from a profile that is NEWER than the one the form is
+  // currently based on. This is the client-side half of the fix for profiles
+  // silently reverting to a blank/stale state after save.
+  const appliedUpdatedAtRef = useRef<string | null>(null);
   // Effective resume size cap from server settings (lower on serverless where
   // the platform gateway rejects large request bodies).
   const [maxResumeSizeMb, setMaxResumeSizeMb] = useState(10);
@@ -49,16 +55,54 @@ export const CandidateProfileManager: React.FC = () => {
     dirtyRef.current = true;
   };
 
+  const applyProfileToForm = (profile: CandidateProfile) => {
+    setHeadline(profile.headline || '');
+    setLocation(profile.location || '');
+    setBio(profile.bio || '');
+    setSkills(profile.skills || []);
+    setLinks(profile.links || []);
+    setResumeFileName(profile.resume_file_name || '');
+    appliedUpdatedAtRef.current = profile.updated_at || null;
+  };
+
   useEffect(() => {
-    // Only re-sync the form from the server when there are no unsaved edits.
-    if (!dirtyRef.current && currentProfile) {
-      setHeadline(currentProfile.headline || '');
-      setLocation(currentProfile.location || '');
-      setBio(currentProfile.bio || '');
-      setSkills(currentProfile.skills || []);
-      setLinks(currentProfile.links || []);
-      setResumeFileName(currentProfile.resume_file_name || '');
+    // Hydrate the form from the SERVER on mount. The form must never silently
+    // start from stale context that could be blank (profile saved in a previous
+    // visit but overwritten by a stale refresh would otherwise look empty).
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch('/api/candidate/profile');
+        if (!cancelled && res.ok) {
+          const profile = await res.json();
+          if (!dirtyRef.current) {
+            applyProfileToForm(profile);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to hydrate candidate profile:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    // Only re-sync from context when there are no unsaved edits AND the incoming
+    // profile is newer than what the form is based on. This stops a stale
+    // refresh (older updated_at) from blanking the form after a save.
+    if (dirtyRef.current) return;
+    if (!currentProfile) return;
+    if (
+      appliedUpdatedAtRef.current &&
+      currentProfile.updated_at &&
+      currentProfile.updated_at <= appliedUpdatedAtRef.current
+    ) {
+      return;
     }
+    applyProfileToForm(currentProfile);
   }, [currentProfile]);
 
   useEffect(() => {
@@ -142,10 +186,11 @@ export const CandidateProfileManager: React.FC = () => {
     }
   };
 
-  const handleAddSkill = () => {
-    if (newSkill.trim() && !skills.includes(newSkill.trim())) {
+  const handleAddSkill = (value?: string) => {
+    const skill = (value ?? newSkill).trim();
+    if (skill && !skills.includes(skill)) {
       markDirty();
-      setSkills([...skills, newSkill.trim()]);
+      setSkills([...skills, skill]);
       setNewSkill('');
     }
   };
@@ -232,20 +277,51 @@ export const CandidateProfileManager: React.FC = () => {
     }
   };
 
+  const submitProfile = async (clientUpdatedAt: string | null) => {
+    const body: Record<string, any> = {
+      headline,
+      location,
+      bio,
+      skills,
+      links
+    };
+    if (clientUpdatedAt) body.client_updated_at = clientUpdatedAt;
+    return authFetch('/api/candidate/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  };
+
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      const res = await authFetch('/api/candidate/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          headline,
-          location,
-          bio,
-          skills,
-          links
-        })
-      });
+      let res = await submitProfile(appliedUpdatedAtRef.current);
+
+      if (res.status === 409) {
+        // The profile changed server-side since we loaded it (e.g. a concurrent
+        // save or an earlier stale write). Merge our CURRENT draft over the
+        // freshest server profile and re-submit once — never silently drop edits.
+        let latest: CandidateProfile | null = null;
+        try {
+          const conflictData = await res.json();
+          latest = conflictData.current || conflictData.profile || null;
+        } catch {
+          // ignore parse errors
+        }
+        if (latest) {
+          await applyProfileToForm(latest);
+          // Re-apply the user's current draft over the fresh base.
+          setHeadline(headline);
+          setLocation(location);
+          setBio(bio);
+          setSkills(skills);
+          setLinks(links);
+          appliedUpdatedAtRef.current = latest.updated_at || null;
+          showToast('Profile Re-synced', 'Your profile had newer changes on the server. Reviewing and re-saving your edits.', 'info');
+          res = await submitProfile(appliedUpdatedAtRef.current);
+        }
+      }
 
       if (!res.ok) {
         if (res.status === 401) {
@@ -266,6 +342,7 @@ export const CandidateProfileManager: React.FC = () => {
       if (updatedProfile.resume_file_name !== undefined) {
         setResumeFileName(updatedProfile.resume_file_name || '');
       }
+      appliedUpdatedAtRef.current = updatedProfile.updated_at || null;
       dirtyRef.current = false;
       showToast('Profile Saved', 'Your candidate profile has been updated.', 'success');
     } catch (err: any) {
@@ -438,21 +515,21 @@ export const CandidateProfileManager: React.FC = () => {
           )}
 
           <div className="flex gap-2 max-w-md">
-            <input
-              type="text"
+            <SkillSuggestInput
               value={newSkill}
-              onChange={(e) => setNewSkill(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddSkill()}
+              onChange={setNewSkill}
+              onAdd={handleAddSkill}
+              exclude={skills}
               placeholder="Add skill (e.g., React, Go, Docker)"
-              className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
+              inputClassName="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
+              buttonLabel={
+                <>
+                  <Plus size={14} />
+                  <span>Add Skill</span>
+                </>
+              }
+              buttonClassName="px-4 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
             />
-            <button
-              onClick={handleAddSkill}
-              className="px-4 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
-            >
-              <Plus size={14} />
-              <span>Add Skill</span>
-            </button>
           </div>
         </div>
 

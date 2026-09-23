@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, CandidateProfile, Company } from '../types';
 
 interface AuthContextType {
@@ -101,6 +101,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return localStorage.getItem(SESSION_KEY) || null;
   });
 
+  // Monotonic revision for auth state. Async refreshes (/api/auth/me) capture
+  // the revision when they start and DROP their result if a newer local write
+  // (save, register, login, avatar/resume upload) happened while they were in
+  // flight. Without this, a stale /me response can silently revert a profile a
+  // user just saved — the root cause of "saved profile goes blank on reload".
+  const revisionRef = useRef(0);
+
+  const bumpRevision = () => {
+    revisionRef.current += 1;
+  };
+
   // Hydrate instantly from the last known snapshot so a returning user never
   // sees a flash of the landing page while /api/auth/me resolves.
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -160,6 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshAuthData = async () => {
+    // Capture the revision this refresh is based on. Everything we mutate below
+    // is dropped if a newer local write superseded us while we were awaiting.
+    const startedAtRev = revisionRef.current;
     try {
       if (!activeUserId) {
         setCurrentUser(null);
@@ -178,6 +192,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const res = await authFetch('/api/auth/me');
       if (res.ok) {
+        // A local write landed while this refresh was in flight — its server
+        // snapshot is older than what the user just saved, so it must not
+        // overwrite the fresher state (or the persisted snapshot).
+        if (revisionRef.current !== startedAtRev) return;
         const data = await res.json();
         setCurrentUser(data.user);
         setCurrentProfile(data.profile);
@@ -193,6 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             availableUsers: data.availableUsers || availableUsers
           });
         } else {
+          if (revisionRef.current !== startedAtRev) return;
           // The server explicitly confirmed this user id no longer resolves
           // to an account. Only then is the session truly gone.
           localStorage.removeItem(SESSION_KEY);
@@ -268,6 +287,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const persistAuth = (user: User, profile: CandidateProfile | null, company: Company | null, users: User[]) => {
+    bumpRevision();
     setCurrentUser(user);
     setCurrentProfile(profile);
     setCurrentCompany(company);
@@ -349,16 +369,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profile?: CandidateProfile | null;
     company?: Company | null;
   }) => {
-    if (data.user) setCurrentUser(data.user);
-    if (data.profile !== undefined) setCurrentProfile(data.profile);
-    if (data.company !== undefined) setCurrentCompany(data.company);
-    const next = {
-      user: data.user || currentUser,
-      profile: data.profile !== undefined ? data.profile : currentProfile,
-      company: data.company !== undefined ? data.company : currentCompany,
+    // A local authoritative update: any in-flight server refresh is now stale
+    // and must not overwrite this fresher state.
+    bumpRevision();
+
+    let effectiveProfile = currentProfile;
+    if (data.profile !== undefined) {
+      const incoming = data.profile;
+      const current = currentProfile;
+      // Never downgrade the profile to an older version than the one we hold —
+      // otherwise an avatar/resume response computed earlier can silently wipe
+      // a profile the user just saved.
+      const isDowngrade =
+        incoming &&
+        current &&
+        current.updated_at &&
+        incoming.updated_at &&
+        incoming.updated_at < current.updated_at;
+      if (!isDowngrade) {
+        effectiveProfile = incoming;
+      }
+    }
+    const effectiveUser = data.user || currentUser;
+    const effectiveCompany = data.company !== undefined ? data.company : currentCompany;
+    if (effectiveUser !== currentUser) setCurrentUser(effectiveUser);
+    if (effectiveProfile !== currentProfile) setCurrentProfile(effectiveProfile);
+    if (effectiveCompany !== currentCompany) setCurrentCompany(effectiveCompany);
+    writeSnapshot({
+      user: effectiveUser,
+      profile: effectiveProfile,
+      company: effectiveCompany,
       availableUsers
-    };
-    writeSnapshot(next);
+    });
   };
 
   return (

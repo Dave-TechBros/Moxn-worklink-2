@@ -85,6 +85,31 @@ export const applications = pgTable('applications', {
   salary_range_formatted: text('salary_range_formatted'),
 });
 
+export const conversations = pgTable('conversations', {
+  id: text('id').primaryKey(),
+  application_id: text('application_id').notNull().unique().references(() => applications.id),
+  job_id: text('job_id').notNull(),
+  company_id: text('company_id').notNull(),
+  candidate_id: text('candidate_id').notNull(),
+  company_name: text('company_name').notNull(),
+  job_title: text('job_title').notNull(),
+  candidate_name: text('candidate_name').notNull(),
+  candidate_headline: text('candidate_headline'),
+  candidate_email: text('candidate_email'),
+  created_at: text('created_at').notNull(),
+  last_message_at: text('last_message_at').notNull(),
+});
+
+export const messages = pgTable('messages', {
+  id: text('id').primaryKey(),
+  conversation_id: text('conversation_id').notNull().references(() => conversations.id),
+  sender_id: text('sender_id').notNull(),
+  sender_name: text('sender_name').notNull(),
+  sender_role: text('sender_role').notNull(),
+  body: text('body').notNull(),
+  created_at: text('created_at').notNull(),
+});
+
 export const flagReports = pgTable('flag_reports', {
   id: text('id').primaryKey(),
   target_type: text('target_type').notNull(),

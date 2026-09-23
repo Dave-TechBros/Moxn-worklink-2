@@ -30,6 +30,7 @@ interface ApplicantDetailModalProps {
   application: Application | null;
   onStatusChange?: (app: Application, targetStatus: ApplicationStatus, force?: boolean) => Promise<void>;
   onRefresh?: () => void;
+  onMessageCandidate?: (app: Application) => void;
 }
 
 export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
@@ -37,7 +38,8 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
   onClose,
   application,
   onStatusChange,
-  onRefresh
+  onRefresh,
+  onMessageCandidate
 }) => {
   if (!isOpen || !application) return null;
 
@@ -178,6 +180,16 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onMessageCandidate && (
+              <button
+                onClick={() => onMessageCandidate(application)}
+                className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                title="Interview communication with the candidate"
+              >
+                <MessageSquare size={14} />
+                <span>Message Candidate</span>
+              </button>
+            )}
             <button
               onClick={handleDownloadCV}
               className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"

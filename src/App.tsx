@@ -9,6 +9,7 @@ import { CandidateJobSearch } from './views/CandidateJobSearch';
 import { CandidateJobDetail } from './views/CandidateJobDetail';
 import { CandidateApplyModal } from './views/CandidateApplyModal';
 import { CandidateApplicationsTracker } from './views/CandidateApplicationsTracker';
+import { CandidateMessages } from './views/CandidateMessages';
 import { CandidateProfileManager } from './views/CandidateProfileManager';
 import { EmployerDashboard } from './views/EmployerDashboard';
 import { EmployerJobPosting } from './views/EmployerJobPosting';
@@ -162,6 +163,8 @@ function MainAppContent() {
         {activeTab === 'applications' && (
           <CandidateApplicationsTracker onBrowseJobs={() => setActiveTab('jobs')} />
         )}
+
+        {activeTab === 'messages' && <CandidateMessages />}
 
         {activeTab === 'profile' && <CandidateProfileManager />}
 
