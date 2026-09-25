@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Application, Conversation, ChatMessage } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './Toast';
-import { X, MessageSquare, Send } from 'lucide-react';
+import { X, ArrowLeft, MessageSquare, Send } from 'lucide-react';
 
 interface ConversationModalProps {
   isOpen: boolean;
@@ -107,8 +107,8 @@ export const ConversationModal: React.FC<ConversationModalProps> = ({ isOpen, on
   };
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-8 flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-6 animate-fadeIn">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[85vh]">
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
@@ -126,9 +126,12 @@ export const ConversationModal: React.FC<ConversationModalProps> = ({ isOpen, on
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-white cursor-pointer"
+            className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-300 hover:text-white cursor-pointer flex items-center gap-1.5 shrink-0"
+            aria-label="Close conversation"
           >
-            <X size={18} />
+            <ArrowLeft size={18} className="sm:hidden" />
+            <X size={18} className="hidden sm:block" />
+            <span className="sm:hidden text-xs font-bold">Back</span>
           </button>
         </div>
 
@@ -154,11 +157,11 @@ export const ConversationModal: React.FC<ConversationModalProps> = ({ isOpen, on
                   <div className={`max-w-[80%] px-4 py-2.5 text-sm leading-relaxed ${mine
                     ? 'bg-indigo-600 text-white rounded-2xl rounded-br-sm shadow-sm'
                     : 'bg-white border border-slate-200 text-slate-800 rounded-2xl rounded-bl-sm shadow-sm'}`}>
-                    <p className={`text-[10px] font-bold mb-0.5 ${mine ? 'text-indigo-200' : 'text-slate-400'}`}>
+                    <p className={`text-xs sm:text-[10px] font-bold mb-0.5 ${mine ? 'text-indigo-200' : 'text-slate-400'}`}>
                       {m.sender_name}
                     </p>
                     {m.body}
-                    <p className={`text-[10px] mt-1 ${mine ? 'text-indigo-200/80' : 'text-slate-400'}`}>
+                    <p className={`text-xs sm:text-[10px] mt-1 ${mine ? 'text-indigo-200/80' : 'text-slate-400'}`}>
                       {new Date(m.created_at).toLocaleString(undefined, {
                         month: 'short',
                         day: 'numeric',

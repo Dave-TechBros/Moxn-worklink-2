@@ -226,13 +226,13 @@ export const CandidateApplyModal: React.FC<CandidateApplyModalProps> = ({
                     currentProfile.skills.map((s) => (
                       <span
                         key={s}
-                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 text-[11px] font-medium"
+                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800 text-xs sm:text-[11px] font-medium"
                       >
                         {s}
                       </span>
                     ))
                   ) : (
-                    <span className="text-[11px] text-slate-500">No skills listed yet</span>
+                    <span className="text-xs sm:text-[11px] text-slate-500">No skills listed yet</span>
                   )}
                 </div>
               </div>

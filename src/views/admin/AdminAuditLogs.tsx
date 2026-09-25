@@ -63,7 +63,7 @@ export const AdminAuditLogs: React.FC = () => {
             header: 'Admin',
             render: (l) => (
               <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-800">
-                <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[11px] shrink-0">
+                <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs sm:text-[11px] shrink-0">
                   {l.admin_name.charAt(0).toUpperCase()}
                 </span>
                 {l.admin_name}
@@ -74,7 +74,7 @@ export const AdminAuditLogs: React.FC = () => {
             key: 'action',
             header: 'Action',
             render: (l) => (
-              <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-bold uppercase">
+              <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs sm:text-[11px] font-bold uppercase">
                 {l.action}
               </span>
             )
@@ -85,7 +85,7 @@ export const AdminAuditLogs: React.FC = () => {
             render: (l) => (
               <div className="min-w-[180px]">
                 <p className="text-sm font-semibold text-slate-800">{l.target_title || l.target_id}</p>
-                <p className="text-[11px] text-slate-400 uppercase">{l.target_type}</p>
+                <p className="text-xs sm:text-[11px] text-slate-400 uppercase">{l.target_type}</p>
               </div>
             )
           },

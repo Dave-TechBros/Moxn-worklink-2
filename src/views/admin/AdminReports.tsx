@@ -134,7 +134,7 @@ export const AdminReports: React.FC = () => {
             key: 'status',
             header: 'Status',
             render: (r) => (
-              <span className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase ${
+              <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${
                 r.status === 'open' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
               }`}>
                 {r.status}
@@ -156,7 +156,7 @@ export const AdminReports: React.FC = () => {
                 {r.status === 'open' && (
                   <button
                     onClick={() => resolveReport(r.id)}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-xs sm:text-[11px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
                   >
                     Resolve
                   </button>
@@ -177,13 +177,13 @@ export const AdminReports: React.FC = () => {
         >
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase ${
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${
                 detail.status === 'open' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
               }`}>
                 {detail.status === 'open' ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}
                 {detail.status}
               </span>
-              <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600">
+              <span className="px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold bg-slate-100 text-slate-600">
                 {new Date(detail.created_at).toLocaleString()}
               </span>
             </div>

@@ -45,7 +45,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 overflow-y-auto">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -61,10 +61,10 @@ export const Modal: React.FC<ModalProps> = ({
             initial={{ opacity: 0, scale: 0.96, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 10 }}
-            className={`relative bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full ${maxWidthClass} z-10 overflow-hidden my-8`}
+            className={`relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200/80 w-full ${maxWidthClass} z-10 overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-none`}
           >
             {title && (
-              <div className="flex items-start justify-between p-6 pb-4 border-b border-slate-100">
+              <div className="flex items-start justify-between p-6 pb-4 border-b border-slate-100 shrink-0">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h2>
                   {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
@@ -82,14 +82,14 @@ export const Modal: React.FC<ModalProps> = ({
             {!title && (
               <button
                 onClick={onClose}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-2 rounded-lg transition-colors z-20"
+                className="sticky top-0 self-end text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-2 rounded-lg transition-colors z-20"
                 aria-label="Close dialog"
               >
                 <X size={20} />
               </button>
             )}
 
-            <div className="p-6">{children}</div>
+            <div className="p-6 flex-1 overflow-y-auto">{children}</div>
           </motion.div>
         </div>
       )}

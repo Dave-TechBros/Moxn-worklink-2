@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Company } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './Toast';
-import { X, Building2, Save } from 'lucide-react';
+import { X, ArrowLeft, Building2, Save } from 'lucide-react';
 
 interface CompanyProfileModalProps {
   isOpen: boolean;
@@ -64,8 +64,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-8 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-6 animate-fadeIn">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
         <div className="p-6 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
             <Building2 className="text-indigo-400" size={20} />
@@ -78,9 +78,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-white cursor-pointer"
+            className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-300 hover:text-white cursor-pointer flex items-center gap-1.5 shrink-0"
+            aria-label="Close company profile editor"
           >
-            <X size={18} />
+            <ArrowLeft size={18} className="sm:hidden" />
+            <X size={18} className="hidden sm:block" />
+            <span className="sm:hidden text-xs font-bold">Back</span>
           </button>
         </div>
 

@@ -124,16 +124,16 @@ export const AdminNotifications: React.FC = () => {
             return (
               <div key={n.id} className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-2">
-                  <span className={`px-2 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 ${am.cls}`}>
+                  <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold inline-flex items-center gap-1 ${am.cls}`}>
                     {am.icon} {am.label}
                   </span>
-                  <span className="text-[11px] text-slate-400 shrink-0">{timeAgo(n.created_at)}</span>
+                  <span className="text-xs sm:text-[11px] text-slate-400 shrink-0">{timeAgo(n.created_at)}</span>
                 </div>
                 <div className="flex-1">
                   <p className="font-bold text-slate-900 text-sm">{n.title}</p>
                   <p className="text-xs text-slate-600 leading-relaxed mt-1">{n.body}</p>
                 </div>
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs sm:text-[11px] text-slate-400">
                   <span>{n.scheduled_for ? (
                     <span className="inline-flex items-center gap-1"><Clock size={11} /> Scheduled {new Date(n.scheduled_for).toLocaleString()}</span>
                   ) : (
@@ -186,7 +186,7 @@ export const AdminNotifications: React.FC = () => {
                 placeholder="e.g. user-cand-1"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
               />
-              <p className="text-[11px] text-slate-400 mt-1">You can find user IDs in User Management.</p>
+              <p className="text-xs sm:text-[11px] text-slate-400 mt-1">You can find user IDs in User Management.</p>
             </div>
           )}
 

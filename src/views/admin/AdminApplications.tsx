@@ -107,7 +107,7 @@ export const AdminApplications: React.FC = () => {
 
   const badge = (s: string) => {
     const m = STATUS_META[s] || STATUS_META.new;
-    return <span className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase ${m.cls}`}>{m.label}</span>;
+    return <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${m.cls}`}>{m.label}</span>;
   };
 
   return (
@@ -218,7 +218,7 @@ export const AdminApplications: React.FC = () => {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
               {badge(detailApp.status)}
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold bg-slate-100 text-slate-600">
                 <Clock size={12} /> Applied {new Date(detailApp.created_at).toLocaleString()}
               </span>
             </div>

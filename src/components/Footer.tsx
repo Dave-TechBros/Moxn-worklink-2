@@ -34,14 +34,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <p className="text-slate-400 leading-relaxed mb-4">
               Clean, confidence-inspiring career marketplace. Verifiable application state tracking, transparent role pipelines, and moderated employer listings.
             </p>
-            <div className="flex items-center gap-2 text-emerald-400 text-[11px] font-medium">
+            <div className="flex items-center gap-2 text-emerald-400 text-xs sm:text-[11px] font-medium">
               <ShieldCheck size={14} />
               <span>WCAG 2.2 Compliant • Server-Enforced RBAC</span>
             </div>
           </div>
 
           <div>
-            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-[11px] mb-3">
+            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-xs sm:text-[11px] mb-3">
               For Candidates
             </h4>
             <ul className="space-y-2">
@@ -81,7 +81,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </div>
 
           <div>
-            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-[11px] mb-3">
+            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-xs sm:text-[11px] mb-3">
               For Employers
             </h4>
             <ul className="space-y-2">
@@ -121,7 +121,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </div>
 
           <div>
-            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-[11px] mb-3">
+            <h4 className="font-bold text-slate-200 uppercase tracking-wider text-xs sm:text-[11px] mb-3">
               Marketplace Health
             </h4>
             <ul className="space-y-2">
@@ -138,7 +138,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-500 gap-4">
+        <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-xs sm:text-[11px] text-slate-500 gap-4">
           <p>© {new Date().getFullYear()} Moxn Worklink. Built for high-trust career decisions.</p>
           <div className="flex items-center gap-6">
             <button

@@ -224,7 +224,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   />
                   <div>
                     <p className="text-xs font-bold text-slate-900">Job Candidate</p>
-                    <p className="text-[10px] text-slate-500">Seeking tech roles</p>
+                    <p className="text-xs sm:text-[10px] text-slate-500">Seeking tech roles</p>
                   </div>
                 </button>
 
@@ -243,7 +243,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   />
                   <div>
                     <p className="text-xs font-bold text-slate-900">Employer</p>
-                    <p className="text-[10px] text-slate-500">Posting open roles</p>
+                    <p className="text-xs sm:text-[10px] text-slate-500">Posting open roles</p>
                   </div>
                 </button>
               </div>

@@ -130,7 +130,7 @@ export const AdminAdmins: React.FC = () => {
                 <div>
                   <p className="font-bold text-slate-900 text-sm">
                     {u.name}
-                    {u.id === currentUser?.id && <span className="ml-1.5 text-[10px] text-indigo-500 font-bold">(you)</span>}
+                    {u.id === currentUser?.id && <span className="ml-1.5 text-xs sm:text-xs sm:text-[10px] text-indigo-500 font-bold">(you)</span>}
                   </p>
                   <p className="text-xs text-slate-400">{u.email}</p>
                 </div>
@@ -142,14 +142,14 @@ export const AdminAdmins: React.FC = () => {
             header: 'Level',
             render: (u) => {
               const m = LEVEL_META[u.admin_level || 'moderator'];
-              return <span className={`px-2 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 ${m.cls}`}>{m.icon} {m.label}</span>;
+              return <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold inline-flex items-center gap-1 ${m.cls}`}>{m.icon} {m.label}</span>;
             }
           },
           {
             key: 'status',
             header: 'Status',
             render: (u) => (
-              <span className={`px-2 py-1 rounded-lg text-[11px] font-bold ${(u.status || 'active') === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+              <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold ${(u.status || 'active') === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                 {(u.status || 'active') === 'active' ? 'Active' : 'Suspended'}
               </span>
             )
@@ -210,7 +210,7 @@ export const AdminAdmins: React.FC = () => {
             </div>
 
             {editUser.id === currentUser?.id && (
-              <p className="text-[11px] text-amber-600 font-semibold">
+              <p className="text-xs sm:text-[11px] text-amber-600 font-semibold">
                 Warning: changing your own level or suspending yourself may lock you out of the admin console.
               </p>
             )}

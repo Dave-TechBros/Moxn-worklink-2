@@ -199,7 +199,7 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
   const isSelf = (u: User) => u.id === currentUser?.id;
 
   const actionButtons = (u: User) => {
-    if (isSelf(u)) return <span className="text-[11px] text-slate-400 font-semibold">You</span>;
+    if (isSelf(u)) return <span className="text-xs sm:text-[11px] text-slate-400 font-semibold">You</span>;
     return (
       <div className="flex items-center gap-1">
         <button
@@ -353,7 +353,7 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
             header: 'Role',
             sortable: true,
             render: (u) => (
-              <span className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wide ${
+              <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase tracking-wide ${
                 u.role === 'admin' ? 'bg-rose-50 text-rose-700' :
                 u.role === 'employer' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'
               }`}>
@@ -365,7 +365,7 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
             key: 'admin_level',
             header: 'Level',
             render: (u) => u.admin_level ? (
-              <span className="text-[11px] font-bold text-indigo-600 uppercase">{u.admin_level.replace('_', ' ')}</span>
+              <span className="text-xs sm:text-[11px] font-bold text-indigo-600 uppercase">{u.admin_level.replace('_', ' ')}</span>
             ) : <span className="text-slate-300">—</span>
           },
           {
@@ -373,7 +373,7 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
             header: 'Status',
             sortable: true,
             render: (u) => (
-              <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-bold ${
+              <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs sm:text-[11px] font-bold ${
                 (u.status || 'active') === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${(u.status || 'active') === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
@@ -406,17 +406,17 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
         {detailUser && (
           <div className="space-y-6">
             <div className="flex flex-wrap items-center gap-3">
-              <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase ${detailUser.role === 'admin' ? 'bg-rose-50 text-rose-700' : detailUser.role === 'employer' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>
+              <span className={`px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${detailUser.role === 'admin' ? 'bg-rose-50 text-rose-700' : detailUser.role === 'employer' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 {detailUser.role}
               </span>
-              <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase ${(detailUser.status || 'active') === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+              <span className={`px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${(detailUser.status || 'active') === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                 {(detailUser.status || 'active') === 'active' ? 'Active' : 'Suspended'}
               </span>
               {detailUser.verified && (
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase bg-indigo-50 text-indigo-700">Verified</span>
+                <span className="px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase bg-indigo-50 text-indigo-700">Verified</span>
               )}
               {detailUser.admin_level && (
-                <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase bg-slate-100 text-slate-600">
+                <span className="px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase bg-slate-100 text-slate-600">
                   {detailUser.admin_level.replace('_', ' ')}
                 </span>
               )}
@@ -467,7 +467,7 @@ export const AdminUsers: React.FC<Props> = ({ initialRole = 'all' }) => {
                         <p className="font-bold text-slate-800">{a.job_title}</p>
                         <p className="text-slate-400">{a.company_name} · Applied {new Date(a.created_at).toLocaleDateString()}</p>
                       </div>
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold uppercase text-[10px]">{a.status}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold uppercase text-xs sm:text-xs sm:text-[10px]">{a.status}</span>
                     </div>
                   ))}
                 </div>

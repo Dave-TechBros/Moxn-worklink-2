@@ -89,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                 <span className="text-lg font-bold tracking-tight text-white group-hover:text-indigo-300 transition-colors">
                   Moxn Worklink
                 </span>
-                <span className="block text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                <span className="block text-xs sm:text-xs sm:text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                   Career Marketplace
                 </span>
               </div>
@@ -140,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                 )}
                 <div className="hidden sm:block text-xs">
                   <p className="font-semibold text-slate-100 leading-none">{currentUser.name}</p>
-                  <p className="text-[11px] text-indigo-300 font-medium capitalize mt-0.5">
+                  <p className="text-xs sm:text-[11px] text-indigo-300 font-medium capitalize mt-0.5">
                     {currentUser.role === 'employer'
                       ? `Employer (${currentCompany?.name || 'TechFlow'})`
                       : currentUser.role === 'admin'
@@ -156,8 +156,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
                 <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 py-2 divide-y divide-slate-800">
                   <div className="px-4 py-2.5">
                     <p className="font-bold text-slate-100 text-xs">{currentUser.name}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">{currentUser.email}</p>
-                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 font-bold text-[10px] uppercase tracking-wider">
+                    <p className="text-xs sm:text-[11px] text-slate-400 mt-0.5 truncate">{currentUser.email}</p>
+                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 font-bold text-xs sm:text-xs sm:text-[10px] uppercase tracking-wider">
                       {currentUser.role}
                     </span>
                   </div>
@@ -257,7 +257,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenA
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-3 rounded-lg ${
+              className={`flex flex-col items-center gap-1 text-xs sm:text-[11px] font-medium py-1 px-3 rounded-lg ${
                 isActive ? 'text-indigo-400 font-bold' : 'text-slate-400'
               }`}
             >

@@ -209,7 +209,7 @@ export const CandidateApplicationsTracker: React.FC<CandidateApplicationsTracker
                               }`}
                             ></div>
                             <span
-                              className={`text-[11px] font-bold block ${
+                              className={`text-xs sm:text-[11px] font-bold block ${
                                 isCurrent
                                   ? 'text-indigo-700 font-extrabold'
                                   : isDone
@@ -239,12 +239,12 @@ export const CandidateApplicationsTracker: React.FC<CandidateApplicationsTracker
                         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
                           <div className="flex items-center justify-between font-bold text-slate-900">
                             <span>Status moved to: {hist.to_status.toUpperCase()}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">
+                            <span className="text-xs sm:text-xs sm:text-[10px] text-slate-400 font-normal">
                               {new Date(hist.timestamp).toLocaleString()}
                             </span>
                           </div>
                           <p className="text-slate-600 mt-1 leading-relaxed">{hist.note}</p>
-                          <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                          <p className="text-xs sm:text-xs sm:text-[10px] text-slate-400 mt-1 font-mono">
                             Updated by: {hist.updated_by_name}
                           </p>
                         </div>

@@ -236,7 +236,7 @@ export const CandidateMessages: React.FC = () => {
                             </div>
                             <div className={mine ? 'text-right' : ''}>
                               <div className="flex items-center gap-2 justify-end">
-                                <span className="text-[11px] font-bold text-slate-500">{m.sender_name}</span>
+                                <span className="text-xs sm:text-[11px] font-bold text-slate-500">{m.sender_name}</span>
                               </div>
                               <div
                                 className={`mt-1 px-4 py-2.5 text-sm leading-relaxed ${
@@ -247,7 +247,7 @@ export const CandidateMessages: React.FC = () => {
                               >
                                 {m.body}
                               </div>
-                              <p className="text-[10px] text-slate-400 mt-1">
+                              <p className="text-xs sm:text-xs sm:text-[10px] text-slate-400 mt-1">
                                 {new Date(m.created_at).toLocaleString(undefined, {
                                   month: 'short',
                                   day: 'numeric',

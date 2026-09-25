@@ -94,7 +94,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </div>
         <div>
           <p className="text-sm font-bold text-white leading-none">Moxn Admin</p>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-indigo-400 mt-0.5">
+          <p className="text-xs sm:text-xs sm:text-[10px] font-semibold uppercase tracking-widest text-indigo-400 mt-0.5">
             Control Center
           </p>
         </div>
@@ -127,7 +127,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       <div className="p-3 border-t border-slate-800 shrink-0 space-y-2">
         <div className="px-3 py-2.5 rounded-xl bg-slate-800/60">
           <p className="text-xs font-bold text-white truncate">{currentUser?.name}</p>
-          <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mt-0.5">
+          <p className="text-xs sm:text-xs sm:text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mt-0.5">
             {adminLevel.replace('_', ' ')}
           </p>
         </div>
@@ -182,7 +182,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold">
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs sm:text-[11px] font-bold">
               <ShieldCheck size={13} /> RBAC Enforced
             </span>
             {currentUser?.avatar ? (

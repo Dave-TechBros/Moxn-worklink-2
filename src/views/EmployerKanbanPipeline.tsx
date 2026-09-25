@@ -241,7 +241,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
                   {col.title}
                 </h3>
-                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center">
+                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-bold text-xs sm:text-[11px] flex items-center justify-center">
                   {colApps.length}
                 </span>
               </div>
@@ -274,13 +274,13 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                         <h4 className="font-bold text-slate-900 text-sm leading-snug">
                           {app.candidate_name}
                         </h4>
-                        <span className="text-[10px] text-slate-400 shrink-0">
+                        <span className="text-xs sm:text-xs sm:text-[10px] text-slate-400 shrink-0">
                           {new Date(app.created_at).toLocaleDateString()}
                         </span>
                       </div>
 
                       <p className="text-xs text-slate-500 line-clamp-1">{app.candidate_headline}</p>
-                      <p className="text-[11px] font-semibold text-indigo-700 mt-1">
+                      <p className="text-xs sm:text-[11px] font-semibold text-indigo-700 mt-1">
                         {app.job_title}
                       </p>
 
@@ -291,7 +291,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                             setSelectedApp(app);
                             setDetailModalOpen(true);
                           }}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
+                          className="inline-flex items-center gap-1 text-xs sm:text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
                         >
                           <Eye size={12} />
                           <span>View Info & CV</span>
@@ -306,7 +306,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                               e.stopPropagation();
                               executeMoveStatus(app, 'reviewing');
                             }}
-                            className="w-full text-center py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-[11px] rounded transition-colors"
+                            className="w-full text-center py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs sm:text-[11px] rounded transition-colors"
                           >
                             → Move to Review
                           </button>
@@ -318,7 +318,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                               e.stopPropagation();
                               executeMoveStatus(app, 'interview');
                             }}
-                            className="w-full text-center py-1 bg-sky-50 hover:bg-sky-100 text-sky-900 font-bold text-[11px] rounded transition-colors"
+                            className="w-full text-center py-1 bg-sky-50 hover:bg-sky-100 text-sky-900 font-bold text-xs sm:text-[11px] rounded transition-colors"
                           >
                             → Schedule Interview
                           </button>
@@ -330,7 +330,7 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                               e.stopPropagation();
                               executeMoveStatus(app, 'offer');
                             }}
-                            className="w-full text-center py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-[11px] rounded transition-colors"
+                            className="w-full text-center py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs sm:text-[11px] rounded transition-colors"
                           >
                             → Extend Offer
                           </button>
@@ -417,10 +417,10 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                     <FileText size={20} className="text-indigo-600" />
                     <div>
                       <p className="font-bold text-slate-900">{selectedApp.resume_file_name}</p>
-                      <p className="text-[10px] text-slate-500">PDF Document • Verifiable Attachment</p>
+                      <p className="text-xs sm:text-xs sm:text-[10px] text-slate-500">PDF Document • Verifiable Attachment</p>
                     </div>
                   </div>
-                  <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 font-bold text-[11px] rounded-lg">
+                  <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 font-bold text-xs sm:text-[11px] rounded-lg">
                     PDF Attached
                   </span>
                 </div>
@@ -468,12 +468,12 @@ export const EmployerKanbanPipeline: React.FC<EmployerKanbanPipelineProps> = ({
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                       <div className="flex items-center justify-between font-bold text-slate-900">
                         <span>Moved to '{hist.to_status.toUpperCase()}'</span>
-                        <span className="text-[10px] text-slate-400 font-normal">
+                        <span className="text-xs sm:text-xs sm:text-[10px] text-slate-400 font-normal">
                           {new Date(hist.timestamp).toLocaleString()}
                         </span>
                       </div>
                       <p className="text-slate-600 mt-1">{hist.note}</p>
-                      <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                      <p className="text-xs sm:text-xs sm:text-[10px] text-slate-400 mt-1 font-mono">
                         Actor: {hist.updated_by_name}
                       </p>
                     </div>

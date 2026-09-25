@@ -12,7 +12,7 @@ export const BarChart: React.FC<BarChartProps> = ({ data, height = 220, color = 
     <div className="flex items-end gap-2" style={{ height }}>
       {data.map((d) => (
         <div key={d.label} className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
-          <span className="text-[10px] font-bold text-slate-600">{d.value}</span>
+          <span className="text-xs sm:text-[10px] font-bold text-slate-600">{d.value}</span>
           <div
             className="w-full rounded-t-lg transition-all duration-500"
             style={{
@@ -20,7 +20,7 @@ export const BarChart: React.FC<BarChartProps> = ({ data, height = 220, color = 
               backgroundColor: color
             }}
           />
-          <span className="text-[10px] font-semibold text-slate-400 truncate w-full text-center">
+          <span className="text-xs sm:text-[10px] font-semibold text-slate-400 truncate w-full text-center">
             {d.label}
           </span>
         </div>
@@ -68,7 +68,7 @@ export const LineChart: React.FC<LineChartProps> = ({ series, height = 220, colo
       </svg>
       <div className="flex justify-between px-0.5 mt-1">
         {pts.map((p) => (
-          <span key={p.label} className="text-[10px] font-semibold text-slate-400">
+          <span key={p.label} className="text-xs sm:text-[10px] font-semibold text-slate-400">
             {p.label}
           </span>
         ))}

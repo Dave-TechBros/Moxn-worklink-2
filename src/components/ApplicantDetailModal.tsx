@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import { StatusBadge } from './StatusBadge';
 import {
   X,
+  ArrowLeft,
   FileText,
   Download,
   ExternalLink,
@@ -110,8 +111,8 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden my-8 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-6 animate-fadeIn">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
         {/* Modal Header */}
         <div className="p-6 bg-slate-900 text-white flex items-start justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-4">
@@ -132,7 +133,7 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                 <StatusBadge status={application.status} size="sm" />
               </div>
               <p className="text-xs text-slate-300 mt-0.5">{application.candidate_headline}</p>
-              <div className="flex items-center gap-4 text-[11px] text-slate-400 mt-1 font-medium">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 mt-1 font-medium">
                 <span className="flex items-center gap-1">
                   <Mail size={12} /> {application.candidate_email}
                 </span>
@@ -148,9 +149,12 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-2 text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+            aria-label="Close applicant details"
           >
-            <X size={20} />
+            <ArrowLeft size={18} className="sm:hidden" />
+            <X size={20} className="hidden sm:block" />
+            <span className="sm:hidden text-xs font-bold">Back</span>
           </button>
         </div>
 
@@ -292,10 +296,10 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                     <div>
                       <h1 className="text-2xl font-black text-slate-900">{application.candidate_name}</h1>
                       <p className="text-xs font-bold text-indigo-600 mt-1">{application.candidate_headline}</p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{application.candidate_email} • {profile?.location || 'Location not provided'}</p>
+                      <p className="text-xs sm:text-[11px] text-slate-500 mt-0.5">{application.candidate_email} • {profile?.location || 'Location not provided'}</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Application File</span>
+                      <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400">Application File</span>
                       <p className="text-xs font-mono font-bold text-slate-700">{application.resume_file_id || 'RES-VERIFIED'}</p>
                     </div>
                   </div>
@@ -316,13 +320,13 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                     {profile?.skills && profile.skills.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {profile.skills.map((sk) => (
-                          <span key={sk} className="px-2.5 py-1 bg-slate-100 text-slate-800 rounded-lg text-[11px] font-bold">
+                          <span key={sk} className="px-2.5 py-1 bg-slate-100 text-slate-800 rounded-lg text-xs sm:text-[11px] font-bold">
                             {sk}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-slate-400 italic text-[11px]">No skills listed by candidate yet.</p>
+                      <p className="text-slate-400 italic text-xs sm:text-[11px]">No skills listed by candidate yet.</p>
                     )}
                   </div>
 
@@ -346,11 +350,11 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-slate-400 italic text-[11px]">No links provided.</p>
+                      <p className="text-slate-400 italic text-xs sm:text-[11px]">No links provided.</p>
                     )}
                   </div>
 
-                  <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 text-indigo-900 text-[11px] flex items-center justify-between">
+                  <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 text-indigo-900 text-xs sm:text-[11px] flex items-center justify-between">
                     <span>Full raw PDF document binary attached and ready for export.</span>
                     <button
                       onClick={handleDownloadCV}
@@ -371,24 +375,24 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
                   <h3 className="font-bold text-slate-900 text-sm">Personal & Location Info</h3>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Full Name</span>
+                    <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Full Name</span>
                     <p className="font-bold text-slate-800 text-sm">{application.candidate_name}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Headline</span>
+                    <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Headline</span>
                     <p className="font-medium text-slate-800">{application.candidate_headline}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Email Address</span>
+                    <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Email Address</span>
                     <p className="font-medium text-slate-800">{application.candidate_email}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Location</span>
+                    <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Location</span>
                     <p className="font-medium text-slate-800">{profile?.location || application.location || 'Location not provided'}</p>
                   </div>
                   {profile?.years_experience !== undefined && (
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Experience</span>
+                      <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Experience</span>
                       <p className="font-bold text-indigo-600">{profile.years_experience} Years Professional Experience</p>
                     </div>
                   )}
@@ -408,7 +412,7 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                       ))}
                     </div>
                   ) : (
-                    <p className="text-slate-400 italic text-[11px]">No skills listed by candidate yet.</p>
+                    <p className="text-slate-400 italic text-xs sm:text-[11px]">No skills listed by candidate yet.</p>
                   )}
 
                   <div className="pt-2">
@@ -429,7 +433,7 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-slate-400 italic text-[11px]">No links provided.</p>
+                      <p className="text-slate-400 italic text-xs sm:text-[11px]">No links provided.</p>
                     )}
                   </div>
                 </div>
@@ -468,12 +472,12 @@ export const ApplicantDetailModal: React.FC<ApplicantDetailModalProps> = ({
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                       <div className="flex items-center justify-between font-bold text-slate-900">
                         <span>Moved to '{hist.to_status.toUpperCase()}'</span>
-                        <span className="text-[10px] text-slate-400 font-normal">
+                        <span className="text-xs sm:text-xs sm:text-[10px] text-slate-400 font-normal">
                           {new Date(hist.timestamp).toLocaleString()}
                         </span>
                       </div>
                       <p className="text-slate-600 mt-1">{hist.note}</p>
-                      <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                      <p className="text-xs sm:text-xs sm:text-[10px] text-slate-400 mt-1 font-mono">
                         Actor: {hist.updated_by_name}
                       </p>
                     </div>

@@ -437,14 +437,14 @@ export const CandidateJobSearch: React.FC<CandidateJobSearchProps> = ({
                   {job.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium"
+                      className="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs sm:text-[11px] font-medium"
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
 
-                <span className="text-[11px] text-slate-400 flex items-center gap-1 ml-auto">
+                <span className="text-xs sm:text-[11px] text-slate-400 flex items-center gap-1 ml-auto">
                   <Clock size={12} /> Posted {new Date(job.created_at).toLocaleDateString()}
                 </span>
               </div>

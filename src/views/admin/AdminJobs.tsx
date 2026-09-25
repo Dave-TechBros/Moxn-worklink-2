@@ -120,7 +120,7 @@ export const AdminJobs: React.FC<Props> = ({ initialStatus = 'all' }) => {
       closed: { label: 'Closed', cls: 'bg-slate-100 text-slate-600' }
     };
     const m = map[s] || map.draft;
-    return <span className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase ${m.cls}`}>{m.label}</span>;
+    return <span className={`px-2 py-1 rounded-lg text-xs sm:text-[11px] font-bold uppercase ${m.cls}`}>{m.label}</span>;
   };
 
   const actionButtons = (j: Job) => (
@@ -299,10 +299,10 @@ export const AdminJobs: React.FC<Props> = ({ initialStatus = 'all' }) => {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
               {statusBadge(detailJob.status)}
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-600">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold bg-slate-100 text-slate-600">
                 <Clock size={12} /> Posted {new Date(detailJob.created_at).toLocaleDateString()}
               </span>
-              <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700">
+              <span className="px-2.5 py-1 rounded-lg text-xs sm:text-[11px] font-bold bg-indigo-50 text-indigo-700">
                 {detailJob.employment_type} · {detailJob.location_type}
               </span>
             </div>

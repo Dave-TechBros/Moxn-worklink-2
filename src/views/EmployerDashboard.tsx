@@ -289,7 +289,7 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span
-                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                            className={`text-xs sm:text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
                               job.status === 'published'
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 : job.status === 'draft'
@@ -389,7 +389,7 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
                           <div className="flex items-center gap-2 flex-wrap mb-1">
                             <h3 className="font-bold text-slate-900 text-base">{app.candidate_name}</h3>
                             <span
-                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                              className={`text-xs sm:text-xs sm:text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                 app.status === 'new'
                                   ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
                                   : app.status === 'reviewing'
@@ -407,7 +407,7 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
 
                           <p className="text-xs font-semibold text-slate-600">{app.candidate_headline}</p>
 
-                          <div className="flex items-center gap-4 text-[11px] text-slate-500 mt-1 font-medium flex-wrap">
+                          <div className="flex items-center gap-4 text-xs sm:text-[11px] text-slate-500 mt-1 font-medium flex-wrap">
                             <span className="text-indigo-700 font-bold">Applied for: {app.job_title}</span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
@@ -422,7 +422,7 @@ export const EmployerDashboard: React.FC<EmployerDashboardProps> = ({
                             <span className="text-xs font-bold text-slate-800 truncate">
                               {app.resume_file_name || 'Resume_Document.pdf'}
                             </span>
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold ml-auto shrink-0">
+                            <span className="text-xs sm:text-xs sm:text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold ml-auto shrink-0">
                               PDF Attached
                             </span>
                           </div>

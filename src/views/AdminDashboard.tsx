@@ -171,7 +171,7 @@ export const AdminDashboard: React.FC = () => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
+                      <span className="text-xs sm:text-xs sm:text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
                         {report.reason}
                       </span>
                       <h4 className="font-bold text-slate-900 text-sm mt-1">
@@ -194,7 +194,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
 
                   <p className="text-xs text-slate-700 mt-2 leading-relaxed">{report.details}</p>
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-200/60">
+                  <div className="flex items-center justify-between text-xs sm:text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-200/60">
                     <span>Reported by: {report.reported_by_name}</span>
                     <span>{new Date(report.created_at).toLocaleDateString()}</span>
                   </div>

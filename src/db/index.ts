@@ -229,6 +229,7 @@ const buildCreateTable = (table: any): string => {
     if (col.notNull) def += ' NOT NULL';
     const defClause = ddlDefault(col.default);
     if (defClause) def += ` DEFAULT ${defClause}`;
+    if (col.isUnique) def += ' UNIQUE';
     if (col.primary) primaryKeys.push(`"${col.name}"`);
     parts.push(def);
   }
@@ -258,6 +259,7 @@ export const ensureSchema = (): Promise<boolean> => {
         // columns idempotently instead of leaving the ORM unable to read/write
         // fields the rest of the app depends on.
         await ensureColumns(client, table);
+        await ensureUniqueConstraints(client, table);
       }
       return true;
     } catch (err) {
@@ -292,6 +294,106 @@ const ensureColumns = async (client: any, table: any): Promise<void> => {
     if (defClause) def += ` DEFAULT ${defClause}`;
     await client.query(`ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS ${def}`);
     console.log(`[DB] Added missing column "${tableName}.${col.name}"`);
+  }
+};
+
+// Tables created by an older schema version may be missing constraints the
+// drizzle schema declares — CREATE TABLE IF NOT EXISTS is a no-op for a table
+// that already exists, and ensureColumns only backfills columns. This matters
+// for conversations.application_id, which is declared .unique() (one application
+// maps to one conversation) while pgGetOrCreateConversation inserts with
+// ON CONFLICT ("application_id") DO NOTHING. Without a matching unique
+// constraint Postgres rejects such inserts with code 42P10. Detect missing
+// unique indexes on isUnique columns and add them idempotently, consolidating
+// any duplicate rows that predate the constraint rather than destroying data.
+const ensureUniqueConstraints = async (client: any, table: any): Promise<void> => {
+  const tableName = table[drizzleTableName];
+  const cols = table[drizzleColumns];
+
+  for (const key of Object.keys(cols)) {
+    const col = cols[key];
+    if (!col.isUnique) continue;
+
+    // Any unique index or constraint on the column satisfies ON CONFLICT, so
+    // skip when one already exists (including via CREATE TABLE UNIQUE).
+    const covered = await client.query(
+      `SELECT i.relname AS index_name
+         FROM pg_index ix
+         JOIN pg_class i  ON i.oid = ix.indexrelid
+         JOIN pg_class t  ON t.oid = ix.indrelid
+         JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+        WHERE t.relname = $1 AND a.attname = $2 AND ix.indisunique`,
+      [tableName, col.name]
+    );
+    if ((covered.rows || []).length > 0) continue;
+
+    const indexName = `${tableName}_${col.name}_unique`;
+    const dupe = await client.query(
+      `SELECT "${col.name}" FROM "${tableName}" WHERE "${col.name}" IS NOT NULL
+        GROUP BY "${col.name}" HAVING count(*) > 1 LIMIT 1`
+    );
+
+    if ((dupe.rows || []).length === 0) {
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "${indexName}" ON "${tableName}" ("${col.name}")`);
+      console.log(`[DB] Added missing unique index "${indexName}" (${tableName}.${col.name})`);
+      continue;
+    }
+
+    // Pre-existing duplicate values block a unique index. Only conversations
+    // has a safe consolidation strategy (re-parent messages onto the earliest
+    // conversation, then drop the duplicates). For any other table, refuse to
+    // create the index rather than delete rows.
+    if (tableName === 'conversations') {
+      await consolidateConversationDuplicates(client, col.name);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "${indexName}" ON "${tableName}" ("${col.name}")`);
+      console.log(`[DB] Consolidated duplicated ${tableName}.${col.name} and added unique index "${indexName}"`);
+    } else {
+      console.warn(
+        `[DB] Cannot add unique index "${indexName}": duplicate values exist in ${tableName}.${col.name}. Resolve them manually and restart.`
+      );
+    }
+  }
+};
+
+// Keeps the earliest conversation (by created_at, then id) per duplicate
+// application_id, reassigns any messages belonging to removed duplicates to the
+// kept conversation, then deletes the duplicate rows. Runs in one transaction.
+const consolidateConversationDuplicates = async (client: any, column: string): Promise<void> => {
+  const dupesResult = await client.query(
+    `SELECT "${column}" AS group_val, count(*) AS n
+       FROM "conversations" WHERE "${column}" IS NOT NULL
+      GROUP BY "${column}" HAVING count(*) > 1`
+  );
+  const dupes: string[] = (dupesResult.rows || []).map((r: any) => r.group_val);
+  if (dupes.length === 0) return;
+
+  await client.query('BEGIN');
+  try {
+    for (const groupVal of dupes) {
+      const keepResult = await client.query(
+        `SELECT id FROM "conversations" WHERE "${column}" = $1 ORDER BY created_at, id LIMIT 1`,
+        [groupVal]
+      );
+      const keepId = keepResult.rows?.[0]?.id;
+      if (!keepId) continue;
+
+      const drops = await client.query(
+        `SELECT id FROM "conversations" WHERE "${column}" = $1 AND id <> $2`,
+        [groupVal, keepId]
+      );
+      const dropIds = (drops.rows || []).map((r: any) => r.id);
+      if (dropIds.length === 0) continue;
+
+      for (const dropId of dropIds) {
+        await client.query(`UPDATE "messages" SET conversation_id = $1 WHERE conversation_id = $2`, [keepId, dropId]);
+      }
+      await client.query(`DELETE FROM "conversations" WHERE id = ANY($1::text[])`, [dropIds]);
+      console.log(`[DB] conversation(s) ${dropIds.join(', ')} merged into ${keepId} (application ${groupVal})`);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
   }
 };
 
